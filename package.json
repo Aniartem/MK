@@ -1,0 +1,12 @@
+{
+  "name": "mk",
+  "private": true,
+  "workspaces": ["server", "admin", "pos"],
+  "scripts": {
+    "dev:server": "npm run dev -w server",
+    "dev:admin": "npm run dev -w admin",
+    "dev:pos": "npm run dev -w pos",
+    "build": "npm run build -w server && npm run build -w admin && npm run build -w pos",
+    "test": "npm test -w server"
+  }
+}

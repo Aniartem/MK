@@ -1,0 +1,30 @@
+# Собирает APK кассы. Готовый файл — во вкладке Actions → запуск → Artifacts → mk-pos-apk
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+    paths: ["pos/**", ".github/workflows/android.yml"]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm run build:android -w pos
+      - run: ./gradlew assembleDebug
+        working-directory: pos/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mk-pos-apk
+          path: pos/android/app/build/outputs/apk/debug/app-debug.apk

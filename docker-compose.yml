@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mk
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?задайте DB_PASSWORD в .env}
+      POSTGRES_DB: mk
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mk"]
+      interval: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://mk:${DB_PASSWORD}@db:5432/mk
+      JWT_SECRET: ${JWT_SECRET:?задайте JWT_SECRET в .env}
+      APP_TZ: ${APP_TZ:-Europe/Moscow}
+
+  # HTTPS-сертификат Let's Encrypt выпускается автоматически для DOMAIN
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?задайте DOMAIN в .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    depends_on:
+      - app
+
+volumes:
+  db:
+  caddy:
