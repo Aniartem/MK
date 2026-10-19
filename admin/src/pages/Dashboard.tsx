@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Filler, Legend, Tooltip,
+  Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, LineController, BarController, Filler, Legend, Tooltip,
 } from 'chart.js';
 import { Chart } from 'react-chartjs-2';
 import { api, qs } from '../api';
 import { addDays, isoDay, money, pct, qty, short } from '../format';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Filler, Legend, Tooltip);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, LineController, BarController, Filler, Legend, Tooltip);
 
 type Row = {
   id?: number; name: string; revenue: number; vsAverage: number | null; checks: number; avgCheck: number;

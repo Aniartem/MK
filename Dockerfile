@@ -6,16 +6,14 @@ COPY admin/package.json admin/
 COPY pos/package.json pos/
 RUN npm ci
 COPY . .
-RUN npm run build
+RUN npm run build && npm prune --omit=dev
 
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production STATIC_DIR=/app/public
-COPY package.json package-lock.json ./
-COPY server/package.json server/
-COPY admin/package.json admin/
-COPY pos/package.json pos/
-RUN npm ci --omit=dev -w server && npm cache clean --force
+COPY --from=build /app/package.json ./
+COPY --from=build /app/node_modules node_modules
+COPY --from=build /app/server/package.json server/
 COPY --from=build /app/server/dist server/dist
 COPY server/migrations server/migrations
 COPY --from=build /app/admin/dist public

@@ -84,20 +84,26 @@ npm run dev:pos                # касса на http://localhost:5174/pos/
 
 Тесты (серверу нужна пустая база `mk_test`): `npm test`.
 
-## Развёртывание на VPS
+## Развёртывание на сервере (VPS)
 
-Подойдёт любой VPS с Docker (1–2 ГБ памяти достаточно на старте) и домен, направленный на его IP.
+Нужен сервер с Ubuntu 22.04 или 24.04: 2 ГБ памяти, 1–2 ядра, 20 ГБ диска. Подойдёт VPS у российского
+провайдера (Timeweb Cloud, Selectel, REG.RU, Яндекс Облако). Домен необязателен, но для HTTPS нужен.
+
+Подключитесь к серверу по SSH под root и выполните одну команду:
 
 ```bash
-git clone https://github.com/Aniartem/MK.git && cd MK
-cp .env.example .env           # впишите DOMAIN, DB_PASSWORD, JWT_SECRET (openssl rand -hex 32)
-docker compose up -d --build
-docker compose exec app node server/dist/create-owner.js you@mail.ru 'надёжный-пароль' 'Ваше имя'
+curl -fsSL https://raw.githubusercontent.com/Aniartem/MK/main/deploy/install.sh | bash
 ```
 
-После этого бэк-офис открывается на `https://ваш-домен/`, касса — на `https://ваш-домен/pos/`.
-HTTPS-сертификат выпускается автоматически. Резервная копия базы:
-`docker compose exec db pg_dump -U mk mk > backup.sql`.
+Скрипт поставит Docker (образы берёт через зеркало — Docker Hub из России часто недоступен), скачает код,
+сгенерирует пароли базы, спросит домен и данные вашей учётной записи владельца и в конце напечатает ссылки:
+
+- бэк-офис: `https://ваш-домен/` (или `http://IP-сервера/` без домена);
+- адрес сервера для планшетов — тот же.
+
+С доменом HTTPS-сертификат выпускается автоматически — заранее направьте A-запись домена на IP сервера.
+Обновление до новой версии — та же команда ещё раз (данные и пароли сохраняются).
+Резервная копия базы: `cd /opt/mk && docker compose exec db pg_dump -U mk mk > backup.sql`.
 
 ## Касса на Android-планшете
 
