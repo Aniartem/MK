@@ -3,15 +3,11 @@ import { z } from 'zod';
 import { query } from '../db.js';
 import { backOffice } from '../auth.js';
 import { config } from '../config.js';
-import { currentHourIn, periodQuery, todayIn } from '../period.js';
+import { byAddress, currentHourIn, inPeriod, periodQuery, todayIn } from '../period.js';
 
-// Во всех запросах: $1 начало, $2 конец (локальные даты), $3 часовой пояс, $4 фильтр адресов
-const inPeriod = (col: string) =>
-  `${col} >= ($1::date)::timestamp at time zone $3 and ${col} < ($2::date + 1)::timestamp at time zone $3`;
 // Тот же период k недель назад: из него считаем «в среднем»
 const inPeriodWeeksAgo = (col: string) =>
   `${col} >= ($1::date - 7 * k)::timestamp at time zone $3 and ${col} < ($2::date + 1 - 7 * k)::timestamp at time zone $3`;
-const byAddress = (col: string) => `($4::int[] is null or ${col} = any($4))`;
 const signed = `case when r.kind = 'sale' then r.total else -r.total end`;
 const AVG_WEEKS = 4;
 
@@ -210,60 +206,5 @@ export async function dashboardRoutes(app: FastifyInstance) {
       series,
       addresses: { totals, rows },
     };
-  });
-
-  // Вкладки под графиком: товары, сотрудники, оплаты, категории
-  app.get('/api/reports/:tab', { preHandler: backOffice }, async (req, reply) => {
-    const { tab } = z.object({ tab: z.enum(['products', 'employees', 'payments', 'categories']) }).parse(req.params);
-    const q = periodQuery.parse(req.query);
-    const params = [q.start, q.finish, config.timezone, q.addresses];
-    const where = `${inPeriod('r.created_at')} and ${byAddress('r.address_id')}`;
-    const itemSigned = (col: string) => `case when r.kind = 'sale' then ${col} else -${col} end`;
-
-    if (tab === 'products') {
-      return query(
-        `select coalesce(p.name, i.name) as name, sum(${itemSigned('i.qty')}) as qty, sum(${itemSigned('i.amount')}) as revenue,
-           count(distinct r.id) filter (where r.kind = 'sale') as checks,
-           round(100 * sum(${itemSigned('i.amount')}) / nullif(sum(sum(${itemSigned('i.amount')})) over (), 0), 2) as share
-         from receipt_items i join receipts r on r.id = i.receipt_id left join products p on p.id = i.product_id
-         where ${where} group by 1 order by revenue desc`,
-        params,
-      );
-    }
-    if (tab === 'categories') {
-      return query(
-        `select coalesce(c.name, 'Без категории') as name, sum(${itemSigned('i.qty')}) as qty,
-           sum(${itemSigned('i.amount')}) as revenue,
-           round(100 * sum(${itemSigned('i.amount')}) / nullif(sum(sum(${itemSigned('i.amount')})) over (), 0), 2) as share
-         from receipt_items i join receipts r on r.id = i.receipt_id
-         left join products p on p.id = i.product_id left join categories c on c.id = p.category_id
-         where ${where} group by 1 order by revenue desc`,
-        params,
-      );
-    }
-    if (tab === 'employees') {
-      return query(
-        `select u.name, sum(${signed}) as revenue, count(*) filter (where r.kind = 'sale') as checks,
-           round(coalesce(sum(r.total) filter (where r.kind = 'sale'), 0) / nullif(count(*) filter (where r.kind = 'sale'), 0), 2) as "avgCheck",
-           coalesce(sum(r.total) filter (where r.kind = 'return'), 0) as returns,
-           coalesce(sum(r.discount) filter (where r.kind = 'sale'), 0) as discounts
-         from receipts r join users u on u.id = r.cashier_id
-         where ${where} group by u.id, u.name order by revenue desc`,
-        params,
-      );
-    }
-    if (tab === 'payments') {
-      return query(
-        `select name, sum(amount) as revenue, sum(cnt) as checks from (
-           select 'Наличные' as name, ${itemSigned('r.cash_amount')} as amount, (r.cash_amount > 0 and r.kind = 'sale')::int as cnt
-           from receipts r where ${where}
-           union all
-           select 'Карта', ${itemSigned('r.card_amount')}, (r.card_amount > 0 and r.kind = 'sale')::int
-           from receipts r where ${where}
-         ) t group by name order by revenue desc`,
-        params,
-      );
-    }
-    return reply.code(404).send();
   });
 }

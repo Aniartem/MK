@@ -55,7 +55,7 @@ export default function Dashboard() {
   }, [start, finish, addresses, group]);
   useEffect(() => {
     setReport(null);
-    if (tab !== 'addresses') api(`/api/reports/${tab}?${qs({ start, finish, addresses })}`).then(setReport);
+    if (tab !== 'addresses') api(`/api/reports/sales?${qs({ start, finish, addresses, by: tab })}`).then(setReport);
   }, [tab, start, finish, addresses]);
 
   return (
@@ -283,9 +283,9 @@ function AddressTable({ totals, rows }: { totals: Row; rows: Row[] }) {
 }
 
 const reportColumns: Record<string, [string, string, (v: any) => React.ReactNode][]> = {
-  products: [['name', 'Товар', String], ['qty', 'Количество', qty], ['checks', 'Чеков', qty], ['revenue', 'Выручка', money], ['share', 'Доля, %', money]],
-  categories: [['name', 'Категория', String], ['qty', 'Количество', qty], ['revenue', 'Выручка', money], ['share', 'Доля, %', money]],
-  employees: [['name', 'Сотрудник', String], ['revenue', 'Выручка', money], ['checks', 'Чеки', qty], ['avgCheck', 'Средний чек', money], ['returns', 'Возвраты', money], ['discounts', 'Скидки', money]],
+  products: [['name', 'Товар', String], ['qty', 'Количество', qty], ['checks', 'Чеков', qty], ['revenue', 'Выручка', money], ['profit', 'Прибыль', money], ['share', 'Доля, %', money]],
+  categories: [['name', 'Категория', String], ['qty', 'Количество', qty], ['revenue', 'Выручка', money], ['profit', 'Прибыль', money], ['share', 'Доля, %', money]],
+  employees: [['name', 'Сотрудник', String], ['revenue', 'Выручка', money], ['checks', 'Чеки', qty], ['avgCheck', 'Средний чек', money], ['discount', 'Скидки', money], ['profit', 'Прибыль', money]],
   payments: [['name', 'Способ оплаты', String], ['revenue', 'Сумма', money], ['checks', 'Чеков', qty]],
 };
 

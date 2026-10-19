@@ -89,3 +89,11 @@ h2 { font-size: 20px; margin: 0; }
   .register header { grid-column: 1; flex-wrap: wrap; padding: 8px 12px; }
   .cart { border-left: 0; border-top: 1px solid var(--line); max-height: 45vh; }
 }
+
+.disc { color: var(--good); }
+.promo-btn { height: 44px; border-radius: 8px; border: 1px dashed var(--blue); background: #fff; color: var(--blue); font-weight: 500; margin-bottom: 4px; }
+.promo-btn.on { background: #e8f0fd; border-style: solid; }
+.segmented { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.segmented button { flex: 1; height: 48px; border: 0; background: #fff; font-size: 16px; }
+.segmented button.active { background: var(--blue); color: #fff; }
+.note { height: 48px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; font-size: 15px; }

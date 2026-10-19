@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { Field, Modal, Page } from '../components';
+import { Field, Modal, Page, useTab } from '../components';
+import { EmployeesReport } from './Reports';
 
 type User = { id?: number; name: string; role: 'owner' | 'manager' | 'cashier'; email: string | null; active: boolean; hasPin?: boolean; pin?: string; password?: string };
 const roleLabel = { owner: 'Владелец', manager: 'Управляющий', cashier: 'Кассир' };
@@ -9,6 +10,7 @@ export default function Employees() {
   const [users, setUsers] = useState<User[]>([]);
   const [edit, setEdit] = useState<User | null>(null);
   const [error, setError] = useState('');
+  const [tab, setTab] = useTab('summary');
   const load = () => api('/api/users').then(setUsers);
   useEffect(() => void load(), []);
 
@@ -26,8 +28,15 @@ export default function Employees() {
   }
 
   return (
-    <Page title="Сотрудники" actions={<button className="btn primary" onClick={() => setEdit({ name: '', role: 'cashier', email: null, active: true })}>+ Сотрудник</button>}>
-      <div className="card table-wrap">
+    <Page
+      title="Сотрудники"
+      tabs={[['summary', 'Сводка'], ['staff', 'Сотрудники']]}
+      tab={tab}
+      onTab={setTab}
+      actions={<button className="btn primary" onClick={() => setEdit({ name: '', role: 'cashier', email: null, active: true })}>+ Сотрудник</button>}
+    >
+      {tab === 'summary' && <EmployeesReport />}
+      {tab === 'staff' && <div className="card table-wrap">
         <table className="table">
           <thead><tr><th>Имя</th><th>Роль</th><th>Email</th><th>PIN на кассе</th><th>Статус</th></tr></thead>
           <tbody>
@@ -42,7 +51,7 @@ export default function Employees() {
             ))}
           </tbody>
         </table>
-      </div>
+      </div>}
       {edit && (
         <Modal title={edit.id ? edit.name : 'Новый сотрудник'} onClose={() => setEdit(null)}>
           <div className="form">

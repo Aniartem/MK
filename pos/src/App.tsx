@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fiscal } from './fiscal';
 import {
-  api, cartTotal, CartItem, enqueue, lineTotal, Product, Receipt, Session, Shift, storage, sync, uuid,
+  api, applyPromotions, cartTotal, CartItem, CashOp, enqueue, lineTotal, Product, Promotion, Receipt, Session, Shift, storage, sync, uuid,
 } from './store';
 
 const fmt = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -29,6 +29,7 @@ export default function App() {
           await fiscal.openShift(session.user.name);
           storage.setShift(s);
           storage.setShiftReceipts([]);
+          storage.setShiftCashOps([]);
           enqueue({ shift: s });
           sync();
           setShift(s);
@@ -169,12 +170,20 @@ function Register(props: {
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [mode, setMode] = useState<'sale' | 'return'>('sale');
-  const [modal, setModal] = useState<'cash' | 'writeoff' | 'close' | null>(null);
+  const [modal, setModal] = useState<'cash' | 'writeoff' | 'close' | 'promo' | 'cashop' | null>(null);
+  const [manualPromo, setManualPromo] = useState<number | null>(null);
+  // клок для автоматических акций по времени
+  const [now, setNow] = useState(new Date());
   const [pending, setPending] = useState(storage.queue().receipts.length);
   const [online, setOnline] = useState(navigator.onLine);
   const [toast, setToast] = useState('');
 
-  const total = cartTotal(cart);
+  const priced = useMemo(
+    () => applyPromotions(cart, catalog.products, catalog.promotions, manualPromo, now),
+    [cart, catalog, manualPromo, now],
+  );
+  const total = cartTotal(priced);
+  const manualPromos = catalog.promotions.filter((p) => p.mode === 'manual');
   const products = useMemo(
     () =>
       catalog.products.filter(
@@ -199,6 +208,7 @@ function Register(props: {
     const tick = async () => {
       setPending(await sync());
       setOnline(navigator.onLine);
+      setNow(new Date());
     };
     tick();
     const t = setInterval(tick, 15000);
@@ -240,7 +250,7 @@ function Register(props: {
       payment,
       cardAmount: payment === 'card' ? total : 0,
       createdAt: new Date().toISOString(),
-      items: cart,
+      items: priced,
     };
     try {
       await fiscal.printReceipt(receipt, session.user.name);
@@ -251,6 +261,7 @@ function Register(props: {
     enqueue({ receipt });
     storage.setShiftReceipts([...storage.shiftReceipts(), receipt]);
     setCart([]);
+    setManualPromo(null);
     setModal(null);
     setMode('sale');
     setToast(`${mode === 'return' ? 'Возврат' : 'Продажа'} ${rub(total)}${change > 0 ? ` · сдача ${rub(change)}` : ''}`);
@@ -268,6 +279,7 @@ function Register(props: {
             {pending ? `Не отправлено: ${pending}` : online ? 'Онлайн' : 'Нет сети'}
           </span>
           <button className={mode === 'return' ? 'on' : ''} onClick={() => setMode(mode === 'sale' ? 'return' : 'sale')}>Возврат</button>
+          <button onClick={() => setModal('cashop')}>Касса</button>
           <button onClick={() => setModal('writeoff')}>Списание</button>
           <button onClick={() => setModal('close')}>Закрыть смену</button>
           <button onClick={props.onLock}>🔒</button>
@@ -277,7 +289,7 @@ function Register(props: {
       <section className="catalog">
         <div className="cats">
           <button className={category === 'all' ? 'active' : ''} onClick={() => setCategory('all')}>Все</button>
-          {catalog.categories.map((c) => (
+          {catalog.categories.filter((c) => catalog.products.some((p) => p.categoryId === c.id)).map((c) => (
             <button key={c.id} className={category === c.id ? 'active' : ''} style={{ ['--c' as string]: c.color }} onClick={() => setCategory(c.id)}>
               {c.name}
             </button>
@@ -298,19 +310,24 @@ function Register(props: {
       <aside className="cart">
         <h2>{mode === 'return' ? 'Возврат' : 'Чек'}</h2>
         <div className="lines">
-          {cart.map((i) => (
+          {priced.map((i, n) => (
             <div key={i.productId ?? i.name} className="line">
-              <div className="line-name">{i.name}<small>{rub(i.price)}</small></div>
+              <div className="line-name">{i.name}<small>{rub(i.price)}{i.discount > 0 && <span className="disc"> −{rub(i.discount)}</span>}</small></div>
               <div className="qty">
-                <button onClick={() => changeQty(i, -1)}>−</button>
+                <button onClick={() => changeQty(cart[n], -1)}>−</button>
                 <span>{i.qty}</span>
-                <button onClick={() => changeQty(i, 1)}>+</button>
+                <button onClick={() => changeQty(cart[n], 1)}>+</button>
               </div>
               <div className="line-sum">{rub(lineTotal(i))}</div>
             </div>
           ))}
           {!cart.length && <div className="muted empty">Нажмите на товар, чтобы добавить его в чек</div>}
         </div>
+        {manualPromos.length > 0 && (
+          <button className={`promo-btn ${manualPromo ? 'on' : ''}`} onClick={() => setModal('promo')}>
+            {manualPromo ? `Скидка: ${manualPromos.find((p) => p.id === manualPromo)?.name}` : '+ Скидка'}
+          </button>
+        )}
         <div className="total">
           <span>Итого</span>
           <b>{rub(total)}</b>
@@ -319,12 +336,23 @@ function Register(props: {
           <button className="big" disabled={!cart.length} onClick={() => setModal('cash')}>Наличные</button>
           <button className="big primary" disabled={!cart.length} onClick={() => pay('card')}>Карта</button>
         </div>
-        {cart.length > 0 && <button className="clear" onClick={() => setCart([])}>Очистить</button>}
+        {cart.length > 0 && <button className="clear" onClick={() => { setCart([]); setManualPromo(null); }}>Очистить</button>}
       </aside>
 
       {modal === 'cash' && <CashModal total={total} isReturn={mode === 'return'} onPay={(change) => pay('cash', change)} onClose={() => setModal(null)} />}
       {modal === 'writeoff' && (
         <WriteoffModal products={catalog.products} addressId={props.addressId} onDone={(msg) => { setModal(null); setToast(msg); }} onClose={() => setModal(null)} />
+      )}
+      {modal === 'promo' && (
+        <PromoModal promos={manualPromos} value={manualPromo} onPick={(id) => { setManualPromo(id); setModal(null); }} onClose={() => setModal(null)} />
+      )}
+      {modal === 'cashop' && (
+        <CashOpModal
+          session={session}
+          shift={shift}
+          onDone={async (msg) => { setModal(null); setToast(msg); setPending(await sync()); }}
+          onClose={() => setModal(null)}
+        />
       )}
       {modal === 'close' && (
         <CloseShiftModal
@@ -420,12 +448,22 @@ function WriteoffModal({ products, addressId, onDone, onClose }: {
   );
 }
 
+// Сколько наличных должно быть в ящике сейчас
+function cashInDrawer(shift: Shift) {
+  const cash = storage.shiftReceipts().filter((r) => r.payment === 'cash')
+    .reduce((s, r) => s + (r.kind === 'sale' ? 1 : -1) * cartTotal(r.items), 0);
+  const ops = storage.shiftCashOps().reduce((s, o) => s + (o.kind === 'deposit' ? o.amount : -o.amount), 0);
+  return Math.round((shift.openingCash + cash + ops) * 100) / 100;
+}
+
 function CloseShiftModal({ shift, cashier, onClose, onClosed }: { shift: Shift; cashier: string; onClose: () => void; onClosed: () => void }) {
   const receipts = storage.shiftReceipts();
   const sum = (kind: Receipt['kind'], payment?: Receipt['payment']) =>
     receipts.filter((r) => r.kind === kind && (!payment || r.payment === payment)).reduce((s, r) => s + cartTotal(r.items), 0);
   const sales = receipts.filter((r) => r.kind === 'sale');
-  const expectedCash = shift.openingCash + sum('sale', 'cash') - sum('return', 'cash');
+  const ops = storage.shiftCashOps();
+  const opSum = (kind: CashOp['kind']) => ops.filter((o) => o.kind === kind).reduce((s, o) => s + o.amount, 0);
+  const expectedCash = Math.max(cashInDrawer(shift), 0);
   const [cash, setCash] = useState('');
 
   async function close() {
@@ -434,6 +472,7 @@ function CloseShiftModal({ shift, cashier, onClose, onClosed }: { shift: Shift; 
     enqueue({ shift: closed });
     storage.setShift(null);
     storage.setShiftReceipts([]);
+    storage.setShiftCashOps([]);
     sync();
     onClosed();
   }
@@ -445,10 +484,59 @@ function CloseShiftModal({ shift, cashier, onClose, onClosed }: { shift: Shift; 
       <div className="cash-row"><span>— наличными</span><b>{rub(sum('sale', 'cash'))}</b></div>
       <div className="cash-row"><span>— картой</span><b>{rub(sum('sale', 'card'))}</b></div>
       <div className="cash-row"><span>Возвраты</span><b>{rub(sum('return'))}</b></div>
+      <div className="cash-row"><span>Внесения / изъятия</span><b>{rub(opSum('deposit'))} / {rub(opSum('withdrawal'))}</b></div>
       <div className="cash-row change"><span>Должно быть в кассе</span><b>{rub(expectedCash)}</b></div>
       <p>Фактически в кассе: <b>{cash === '' ? '—' : rub(Number(cash))}</b></p>
       <Keypad value={cash} onChange={setCash} max={7} />
       <button className="big primary" onClick={close}>Закрыть смену</button>
+    </Modal>
+  );
+}
+
+function PromoModal({ promos, value, onPick, onClose }: {
+  promos: Promotion[]; value: number | null; onPick: (id: number | null) => void; onClose: () => void;
+}) {
+  return (
+    <Modal title="Скидка на чек" onClose={onClose}>
+      {promos.map((p) => (
+        <button key={p.id} className={`big ${value === p.id ? 'primary' : ''}`} onClick={() => onPick(p.id)}>
+          {p.name} · {p.percent}%
+        </button>
+      ))}
+      {value && <button className="big" onClick={() => onPick(null)}>Без скидки</button>}
+    </Modal>
+  );
+}
+
+// Внесение размена или изъятие наличных (инкассация)
+function CashOpModal({ session, shift, onDone, onClose }: { session: Session; shift: Shift; onDone: (msg: string) => void; onClose: () => void }) {
+  const [kind, setKind] = useState<CashOp['kind']>('withdrawal');
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('');
+  const available = cashInDrawer(shift);
+  const tooMuch = kind === 'withdrawal' && Number(amount) > available;
+
+  function submit() {
+    const op: CashOp = {
+      id: uuid(), cashierId: session.user.id, shiftId: shift.id, kind, amount: Number(amount),
+      note: note || null, createdAt: new Date().toISOString(),
+    };
+    enqueue({ cashOp: op });
+    storage.setShiftCashOps([...storage.shiftCashOps(), op]);
+    onDone(`${kind === 'deposit' ? 'Внесено' : 'Изъято'} ${rub(op.amount)}`);
+  }
+
+  return (
+    <Modal title="Наличные в кассе" onClose={onClose}>
+      <div className="segmented">
+        <button className={kind === 'withdrawal' ? 'active' : ''} onClick={() => setKind('withdrawal')}>Изъятие</button>
+        <button className={kind === 'deposit' ? 'active' : ''} onClick={() => setKind('deposit')}>Внесение</button>
+      </div>
+      <div className="amount">{rub(Number(amount || 0))}</div>
+      {kind === 'withdrawal' && <div className={tooMuch ? 'error' : 'muted'}>В кассе {rub(available)}</div>}
+      <Keypad value={amount} onChange={setAmount} max={7} />
+      <input className="note" placeholder="Комментарий (например, инкассация)" value={note} onChange={(e) => setNote(e.target.value)} />
+      <button className="big primary" disabled={!Number(amount) || tooMuch} onClick={submit}>Провести</button>
     </Modal>
   );
 }

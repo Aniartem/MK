@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { Field, Modal, Page } from '../components';
+import { Field, Modal, Page, kindLabels, resetCaches } from '../components';
 import { money } from '../format';
 
-type Product = { id?: number; name: string; categoryId: number | null; price: number; cost: number; unit: string; barcode: string | null; active: boolean; sort: number };
+type Product = { id?: number; name: string; categoryId: number | null; price: number; cost: number; unit: string; kind: string; barcode: string | null; active: boolean; sort: number };
 type Category = { id?: number; name: string; color: string; sort: number };
 
-const emptyProduct: Product = { name: '', categoryId: null, price: 0, cost: 0, unit: 'шт', barcode: null, active: true, sort: 0 };
+const emptyProduct: Product = { name: '', categoryId: null, price: 0, cost: 0, unit: 'шт', kind: 'product', barcode: null, active: true, sort: 0 };
+const markup = (p: Product) => (p.cost ? Math.round(((p.price - p.cost) / p.cost) * 10000) / 100 : null);
 
 export default function Products() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -14,6 +15,8 @@ export default function Products() {
   const [edit, setEdit] = useState<Product | null>(null);
   const [editCat, setEditCat] = useState<Category | null>(null);
   const [filter, setFilter] = useState<number | 'all'>('all');
+  const [kind, setKind] = useState('');
+  const [search, setSearch] = useState('');
   const [error, setError] = useState('');
 
   const load = () => {
@@ -27,13 +30,16 @@ export default function Products() {
     try {
       await api(item.id ? `${path}/${item.id}` : path, { method: item.id ? 'PUT' : 'POST', body: item });
       close();
+      resetCaches();
       load();
     } catch (e) {
       setError((e as Error).message);
     }
   }
 
-  const shown = products.filter((p) => filter === 'all' || p.categoryId === filter);
+  const shown = products.filter(
+    (p) => (filter === 'all' || p.categoryId === filter) && (!kind || p.kind === kind) && p.name.toLowerCase().includes(search.toLowerCase()),
+  );
   return (
     <Page
       title="Номенклатура"
@@ -44,6 +50,13 @@ export default function Products() {
         </>
       }
     >
+      <div className="filters-bar">
+        <input className="input" placeholder="Поиск" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select className="input" value={kind} onChange={(e) => setKind(e.target.value)}>
+          <option value="">Тип номенклатуры</option>
+          {Object.entries(kindLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+      </div>
       <div className="chips">
         <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>Все</button>
         {categories.map((c) => (
@@ -55,16 +68,20 @@ export default function Products() {
       <div className="card table-wrap">
         <table className="table">
           <thead>
-            <tr><th>Название</th><th>Категория</th><th>Цена</th><th>Себестоимость</th><th>Ед.</th><th>Штрихкод</th><th>Статус</th></tr>
+            <tr><th>Название</th><th>Категория</th><th>Ед. изм.</th><th className="right">Себестоимость</th><th className="right">Наценка, %</th><th className="right">Цена</th><th>Штрихкод</th><th>Статус</th></tr>
           </thead>
           <tbody>
             {shown.map((p) => (
               <tr key={p.id} className="clickable" onClick={() => setEdit(p)}>
-                <td className="name">{p.name}</td>
-                <td>{categories.find((c) => c.id === p.categoryId)?.name ?? '—'}</td>
-                <td>{money(p.price)}</td>
-                <td>{money(p.cost)}</td>
+                <td className="name">{p.name}<small className="sub">{kindLabels[p.kind]}</small></td>
+                <td className="caps">
+                  <i className="dot" style={{ background: categories.find((c) => c.id === p.categoryId)?.color }} />
+                  {categories.find((c) => c.id === p.categoryId)?.name ?? '—'}
+                </td>
                 <td>{p.unit}</td>
+                <td className="right">{money(p.cost)}</td>
+                <td className={`right ${(markup(p) ?? 0) < 0 ? 'bad' : ''}`}>{markup(p) === null ? '—' : money(markup(p))}</td>
+                <td className="right">{p.kind === 'raw' ? '—' : money(p.price)}</td>
                 <td>{p.barcode ?? ''}</td>
                 <td>{p.active ? 'В продаже' : <span className="muted">Скрыт</span>}</td>
               </tr>
@@ -78,6 +95,13 @@ export default function Products() {
         <Modal title={edit.id ? 'Товар' : 'Новый товар'} onClose={() => setEdit(null)}>
           <div className="form">
             <Field label="Название"><input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} autoFocus /></Field>
+            <Field label="Тип">
+              <select value={edit.kind} onChange={(e) => setEdit({ ...edit, kind: e.target.value })}>
+                <option value="product">Продукция (своё производство)</option>
+                <option value="goods">Товар (перепродажа)</option>
+                <option value="raw">Сырьё (не продаётся на кассе)</option>
+              </select>
+            </Field>
             <Field label="Категория">
               <select value={edit.categoryId ?? ''} onChange={(e) => setEdit({ ...edit, categoryId: e.target.value ? Number(e.target.value) : null })}>
                 <option value="">Без категории</option>
@@ -88,7 +112,7 @@ export default function Products() {
             <Field label="Себестоимость, ₽"><input type="number" step="0.01" value={edit.cost} onChange={(e) => setEdit({ ...edit, cost: Number(e.target.value) })} /></Field>
             <Field label="Единица">
               <select value={edit.unit} onChange={(e) => setEdit({ ...edit, unit: e.target.value })}>
-                <option>шт</option><option>кг</option><option>л</option>
+                <option>шт</option><option>кг</option><option>л</option><option>мл</option><option>г</option>
               </select>
             </Field>
             <Field label="Штрихкод"><input value={edit.barcode ?? ''} onChange={(e) => setEdit({ ...edit, barcode: e.target.value || null })} /></Field>

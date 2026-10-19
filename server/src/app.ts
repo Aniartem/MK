@@ -9,6 +9,9 @@ import { authRoutes } from './routes/auth.js';
 import { manageRoutes } from './routes/manage.js';
 import { posRoutes } from './routes/pos.js';
 import { dashboardRoutes } from './routes/dashboard.js';
+import { documentRoutes } from './routes/documents.js';
+import { reportRoutes } from './routes/reports.js';
+import { budgetRoutes } from './routes/budget.js';
 
 export async function buildApp() {
   const app = Fastify({ logger: process.env.NODE_ENV !== 'test' });
@@ -27,6 +30,9 @@ export async function buildApp() {
   await app.register(manageRoutes);
   await app.register(posRoutes);
   await app.register(dashboardRoutes);
+  await app.register(documentRoutes);
+  await app.register(reportRoutes);
+  await app.register(budgetRoutes);
 
   // В продакшене сервер отдаёт собранные кабинет (/) и кассу (/pos/)
   if (config.staticDir) {

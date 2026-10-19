@@ -139,3 +139,80 @@ h2 { font-size: 17px; font-weight: 600; margin: 0; }
   .picker-btn, .picker-menu { width: calc(100vw - 32px); }
   .kpis { grid-template-columns: 1fr; gap: 12px; }
 }
+
+/* Шапка с вкладками */
+.topband.with-tabs { flex-direction: column; align-items: stretch; padding-bottom: 60px; gap: 18px; }
+.band-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.band-tabs { display: flex; gap: 22px; border-bottom: 1px solid rgba(255, 255, 255, .12); overflow-x: auto; }
+.band-tabs button { background: none; border: 0; color: #9eabc6; padding: 0 0 14px; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+.band-tabs button.active { color: #fff; border-color: #5d8de6; }
+.topband.with-tabs + .content { margin-top: -36px; }
+
+/* Фильтры */
+.filters-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; background: var(--bg); padding: 0 0 16px; }
+.content > .filters-bar:first-child { background: #fff; padding: 14px; border-radius: 6px; box-shadow: 0 1px 3px rgba(20, 30, 60, .06); margin-bottom: 16px; }
+.filter-group { display: flex; gap: 4px; align-items: center; }
+.filters-bar .daterange { border: 1px solid var(--line); }
+.filters-bar .picker-btn { border: 1px solid var(--line); width: 260px; }
+.filters-bar .picker-menu { width: 300px; }
+.filters-extra { display: flex; gap: 10px; margin-left: auto; align-items: center; }
+.input { height: 38px; border: 1px solid var(--line); border-radius: 4px; padding: 0 12px; background: #fff; min-width: 180px; }
+.subtabs { display: flex; gap: 22px; border-bottom: 1px solid var(--line); margin-bottom: 16px; overflow-x: auto; }
+.subtabs button { background: none; border: 0; padding: 6px 0 10px; color: var(--muted); cursor: pointer; text-align: left; border-bottom: 2px solid transparent; white-space: nowrap; }
+.subtabs button small { display: block; font-size: 11px; }
+.subtabs button.active { color: var(--text); border-color: var(--blue); }
+
+/* Таблицы отчётов */
+.table th.right, .table td.right { text-align: right; }
+.table tr.group-row th { padding-bottom: 0; text-align: center; }
+.table td small.sub, .table td .sub { display: block; font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+.table tr.highlight td { background: #fdf3dc; }
+.table tr.strong td { font-weight: 600; }
+.table td.indent { padding-left: 32px; font-weight: 400; }
+.table-tools { display: flex; justify-content: flex-end; padding: 10px 12px 0; }
+.btn.small { height: 30px; padding: 0 12px; font-size: 12px; }
+.btn.danger { color: var(--bad); border-color: #f2c4c4; }
+.caps { text-transform: uppercase; font-size: 11.5px; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.cell-good { background: #8cc97f; }
+.cell-warn { background: #f4e67a; }
+.cell-bad { background: #f3c9c9; }
+.table td.cell-good, .table td.cell-warn, .table td.cell-bad { color: var(--text); }
+.table.matrix td { padding: 6px 12px; }
+.table.matrix th.vertical { height: 140px; vertical-align: bottom; padding: 8px 4px; }
+.table.matrix th.vertical span { writing-mode: vertical-rl; transform: rotate(180deg); white-space: normal; max-height: 130px; display: inline-block; }
+.abc-matrix { padding: 16px 20px; margin-bottom: 20px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+.abc-matrix table { border-collapse: collapse; }
+.abc-matrix th, .abc-matrix td { border: 1px solid var(--line); padding: 10px 36px; text-align: center; }
+.abc-matrix th { background: #dde3ec; font-weight: 600; }
+.abc-matrix td { color: var(--link); }
+.abc-matrix .hint { max-width: 420px; }
+
+/* Бюджет и формы */
+.section { margin-bottom: 24px; }
+.card.section { padding: 4px 0 0; }
+.card.section h3, .section-title { font-size: 17px; font-weight: 500; margin: 14px 22px 6px; }
+.section-title { margin: 0 0 12px; }
+.detail-grid { display: grid; grid-template-columns: max-content max-content; gap: 4px 24px; }
+.dropdown { position: relative; }
+.dropdown-menu { position: absolute; right: 0; top: 42px; background: #fff; border-radius: 6px; box-shadow: 0 8px 24px rgba(20, 30, 60, .2); z-index: 20; min-width: 240px; padding: 6px 0; }
+.dropdown-menu button { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 10px 16px; cursor: pointer; }
+.dropdown-menu button:hover { background: #f3f6fb; }
+.modal.wide { width: 640px; }
+.form-row { display: flex; gap: 12px; }
+.form-row > * { flex: 1; }
+.segmented { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.segmented button { flex: 1; height: 36px; border: 0; background: #fff; cursor: pointer; }
+.segmented button.active { background: var(--blue); color: #fff; }
+.checks { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--text); font-size: 14px; }
+.checks label { display: flex; gap: 6px; align-items: center; }
+.qty-head { display: flex; justify-content: space-between; padding: 8px 10px; font-size: 11px; color: var(--muted); text-transform: uppercase; border-bottom: 1px solid var(--line); gap: 8px; }
+.qty-list label { gap: 8px; }
+.qty-list label span { flex: 1; }
+.qty-list input + input { width: 100px; }
+
+@media (max-width: 760px) {
+  .filters-bar .picker-btn, .filters-bar .picker-menu, .input { width: 100%; }
+  .filters-extra { margin-left: 0; }
+  .form-row { flex-direction: column; }
+}

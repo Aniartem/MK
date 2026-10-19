@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { Field, Modal, Page } from '../components';
+import { Field, Modal, Page, resetCaches } from '../components';
 
 type Address = { id?: number; name: string; isWarehouse: boolean; active: boolean };
 
@@ -14,6 +14,7 @@ export default function Addresses() {
     if (!edit) return;
     await api(edit.id ? `/api/addresses/${edit.id}` : '/api/addresses', { method: edit.id ? 'PUT' : 'POST', body: edit });
     setEdit(null);
+    resetCaches();
     load();
   }
 

@@ -24,6 +24,7 @@ const productBody = z.object({
   price: z.number().nonnegative(),
   cost: z.number().nonnegative().default(0),
   unit: z.string().default('шт'),
+  kind: z.enum(['goods', 'product', 'raw']).default('product'),
   barcode: z.string().nullable().default(null),
   active: z.boolean().default(true),
   sort: z.number().int().default(0),
@@ -38,7 +39,28 @@ const userBody = z.object({
   active: z.boolean().default(true),
 });
 
-const productColumns = `id, name, category_id as "categoryId", price, cost, unit, barcode, active, sort`;
+const productColumns = `id, name, category_id as "categoryId", price, cost, unit, kind, barcode, active, sort`;
+
+const counterpartyBody = z.object({
+  name: z.string().min(1),
+  inn: z.string().regex(/^(\d{10}|\d{12})$/, 'ИНН — 10 или 12 цифр').nullable().default(null),
+  address: z.string().nullable().default(null),
+  paymentDelay: z.number().int().nonnegative().nullable().default(null),
+  note: z.string().nullable().default(null),
+});
+
+const time = z.string().regex(/^\d{2}:\d{2}$/).nullable().default(null);
+const promotionBody = z.object({
+  name: z.string().min(1),
+  percent: z.number().positive().max(100),
+  mode: z.enum(['auto', 'manual']),
+  categoryIds: z.array(z.number().int()).default([]),
+  addressIds: z.array(z.number().int()).default([]),
+  timeFrom: time,
+  timeTo: time,
+  description: z.string().nullable().default(null),
+  active: z.boolean().default(true),
+});
 const userColumns = `id, name, role, email, active, pin_hash is not null as "hasPin"`;
 
 // PIN определяет кассира, поэтому он должен быть уникальным
@@ -95,9 +117,9 @@ export async function manageRoutes(app: FastifyInstance) {
   app.post('/api/products', { preHandler: backOffice }, async (req) => {
     const b = productBody.parse(req.body);
     const [row] = await query(
-      `insert into products (name, category_id, price, cost, unit, barcode, active, sort)
-       values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
-      [b.name, b.categoryId, b.price, b.cost, b.unit, b.barcode, b.active, b.sort],
+      `insert into products (name, category_id, price, cost, unit, barcode, active, sort, kind)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
+      [b.name, b.categoryId, b.price, b.cost, b.unit, b.barcode, b.active, b.sort, b.kind],
     );
     return row;
   });
@@ -105,9 +127,10 @@ export async function manageRoutes(app: FastifyInstance) {
     const { id } = idParam.parse(req.params);
     const b = productBody.parse(req.body);
     await query(
-      `update products set name = $2, category_id = $3, price = $4, cost = $5, unit = $6, barcode = $7, active = $8, sort = $9
+      `update products set name = $2, category_id = $3, price = $4, cost = $5, unit = $6, barcode = $7, active = $8, sort = $9,
+         kind = $10
        where id = $1`,
-      [id, b.name, b.categoryId, b.price, b.cost, b.unit, b.barcode, b.active, b.sort],
+      [id, b.name, b.categoryId, b.price, b.cost, b.unit, b.barcode, b.active, b.sort, b.kind],
     );
     return { ok: true };
   });
@@ -166,6 +189,55 @@ export async function manageRoutes(app: FastifyInstance) {
       `insert into sales_plans (address_id, day, amount) values ($1, $2, $3)
        on conflict (address_id, day) do update set amount = excluded.amount`,
       [b.addressId, b.day, b.amount],
+    );
+    return { ok: true };
+  });
+
+  // Контрагенты (поставщики)
+  app.get('/api/counterparties', { preHandler: backOffice }, async () =>
+    query(`select id, name, inn, address, payment_delay as "paymentDelay", note from counterparties order by name`),
+  );
+  app.post('/api/counterparties', { preHandler: backOffice }, async (req) => {
+    const b = counterpartyBody.parse(req.body);
+    const [row] = await query(
+      `insert into counterparties (name, inn, address, payment_delay, note) values ($1, $2, $3, $4, $5) returning id`,
+      [b.name, b.inn, b.address, b.paymentDelay, b.note],
+    );
+    return row;
+  });
+  app.put('/api/counterparties/:id', { preHandler: backOffice }, async (req) => {
+    const { id } = idParam.parse(req.params);
+    const b = counterpartyBody.parse(req.body);
+    await query(`update counterparties set name = $2, inn = $3, address = $4, payment_delay = $5, note = $6 where id = $1`, [
+      id, b.name, b.inn, b.address, b.paymentDelay, b.note,
+    ]);
+    return { ok: true };
+  });
+
+  // Скидки и акции
+  app.get('/api/promotions', { preHandler: backOffice }, async () =>
+    query(
+      `select id, name, percent, mode, category_ids as "categoryIds", address_ids as "addressIds",
+         to_char(time_from, 'HH24:MI') as "timeFrom", to_char(time_to, 'HH24:MI') as "timeTo", description, active
+       from promotions order by active desc, name`,
+    ),
+  );
+  app.post('/api/promotions', { preHandler: backOffice }, async (req) => {
+    const b = promotionBody.parse(req.body);
+    const [row] = await query(
+      `insert into promotions (name, percent, mode, category_ids, address_ids, time_from, time_to, description, active)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
+      [b.name, b.percent, b.mode, b.categoryIds, b.addressIds, b.timeFrom, b.timeTo, b.description, b.active],
+    );
+    return row;
+  });
+  app.put('/api/promotions/:id', { preHandler: backOffice }, async (req) => {
+    const { id } = idParam.parse(req.params);
+    const b = promotionBody.parse(req.body);
+    await query(
+      `update promotions set name = $2, percent = $3, mode = $4, category_ids = $5, address_ids = $6, time_from = $7,
+         time_to = $8, description = $9, active = $10 where id = $1`,
+      [id, b.name, b.percent, b.mode, b.categoryIds, b.addressIds, b.timeFrom, b.timeTo, b.description, b.active],
     );
     return { ok: true };
   });

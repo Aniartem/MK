@@ -22,7 +22,7 @@ services:
     environment:
       DATABASE_URL: postgres://mk:${DB_PASSWORD}@db:5432/mk
       JWT_SECRET: ${JWT_SECRET:?задайте JWT_SECRET в .env}
-      APP_TZ: ${APP_TZ:-Europe/Moscow}
+      APP_TZ: ${APP_TZ:-Europe/Samara}
 
   # HTTPS-сертификат Let's Encrypt выпускается автоматически для DOMAIN
   caddy:

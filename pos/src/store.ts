@@ -14,6 +14,10 @@ export type Receipt = {
   createdAt: string;
   items: CartItem[];
 };
+export type Promotion = { id: number; name: string; percent: number; mode: 'auto' | 'manual'; categoryIds: number[]; timeFrom: string | null; timeTo: string | null };
+export type CashOp = { id: string; cashierId: number; shiftId: string | null; kind: 'deposit' | 'withdrawal'; amount: number; note: string | null; createdAt: string };
+export type Catalog = { categories: Category[]; products: Product[]; promotions: Promotion[] };
+type Queue = { receipts: Receipt[]; shifts: Shift[]; cashOps: CashOp[] };
 export type Shift = { id: string; cashierId: number; openedAt: string; closedAt: string | null; openingCash: number; closingCash: number | null };
 export type Session = { token: string; user: { id: number; name: string; role: string } };
 export type Device = { server: string; addressId: number; addressName: string };
@@ -36,20 +40,35 @@ export const storage = {
   setDevice: (d: Device | null) => save('pos_device', d),
   session: () => load<Session | null>('pos_session', null),
   setSession: (s: Session | null) => save('pos_session', s),
-  catalog: () => load<{ categories: Category[]; products: Product[] }>('pos_catalog', { categories: [], products: [] }),
-  setCatalog: (c: { categories: Category[]; products: Product[] }) => save('pos_catalog', c),
+  catalog: () => ({ categories: [], products: [], promotions: [], ...load<Partial<Catalog>>('pos_catalog', {}) }) as Catalog,
+  setCatalog: (c: Catalog) => save('pos_catalog', c),
   shift: () => load<Shift | null>('pos_shift', null),
   setShift: (s: Shift | null) => save('pos_shift', s),
   // Все чеки текущей смены — для отчёта при закрытии
   shiftReceipts: () => load<Receipt[]>('pos_shift_receipts', []),
   setShiftReceipts: (r: Receipt[]) => save('pos_shift_receipts', r),
-  queue: () => load<{ receipts: Receipt[]; shifts: Shift[] }>('pos_queue', { receipts: [], shifts: [] }),
-  setQueue: (q: { receipts: Receipt[]; shifts: Shift[] }) => save('pos_queue', q),
+  shiftCashOps: () => load<CashOp[]>('pos_shift_cash_ops', []),
+  setShiftCashOps: (o: CashOp[]) => save('pos_shift_cash_ops', o),
+  queue: () => ({ receipts: [], shifts: [], cashOps: [], ...load<Partial<Queue>>('pos_queue', {}) }) as Queue,
+  setQueue: (q: Queue) => save('pos_queue', q),
 };
 
 export function uuid() {
   return crypto.randomUUID ? crypto.randomUUID() : '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
     (+c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (+c / 4)))).toString(16));
+}
+
+// Скидка по акциям: автоматические действуют по времени, ручную выбирает кассир. Берётся лучшая из подходящих.
+export function applyPromotions(items: CartItem[], products: Product[], promotions: Promotion[], manualId: number | null, now = new Date()) {
+  const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const active = promotions.filter((p) =>
+    p.mode === 'auto' ? (!p.timeFrom || p.timeFrom <= hhmm) && (!p.timeTo || hhmm <= p.timeTo) : p.id === manualId,
+  );
+  return items.map((i) => {
+    const categoryId = products.find((p) => p.id === i.productId)?.categoryId ?? null;
+    const best = Math.max(0, ...active.filter((p) => !p.categoryIds.length || (categoryId !== null && p.categoryIds.includes(categoryId))).map((p) => p.percent));
+    return { ...i, discount: Math.round(i.price * i.qty * best) / 100 };
+  });
 }
 
 export const lineTotal = (i: CartItem) => Math.round((i.price * i.qty - i.discount) * 100) / 100;
@@ -71,9 +90,10 @@ export async function api<T = any>(path: string, init: { method?: string; body?:
   return data as T;
 }
 
-export function enqueue(item: { receipt?: Receipt; shift?: Shift }) {
+export function enqueue(item: { receipt?: Receipt; shift?: Shift; cashOp?: CashOp }) {
   const q = storage.queue();
   if (item.receipt) q.receipts.push(item.receipt);
+  if (item.cashOp) q.cashOps.push(item.cashOp);
   if (item.shift) q.shifts = [...q.shifts.filter((s) => s.id !== item.shift!.id), item.shift];
   storage.setQueue(q);
 }
@@ -82,21 +102,24 @@ let syncing = false;
 // Отправляет накопленные смены и чеки. Возвращает число неотправленных чеков.
 export async function sync(): Promise<number> {
   const q = storage.queue();
-  if (syncing || (!q.receipts.length && !q.shifts.length) || !storage.session()) return q.receipts.length;
+  const pending = q.receipts.length + q.cashOps.length;
+  if (syncing || (!pending && !q.shifts.length) || !storage.session()) return pending;
   syncing = true;
   try {
-    const batch = { shifts: q.shifts, receipts: q.receipts.slice(0, 200) };
-    const { accepted } = await api<{ accepted: string[] }>('/api/pos/sync', { method: 'POST', body: batch });
+    const batch = { shifts: q.shifts, receipts: q.receipts.slice(0, 200), cashOps: q.cashOps };
+    const res = await api<{ accepted: string[]; acceptedCashOps: string[] }>('/api/pos/sync', { method: 'POST', body: batch });
     const now = storage.queue();
     const sentShifts = new Set(batch.shifts.map((s) => JSON.stringify(s)));
     storage.setQueue({
-      receipts: now.receipts.filter((r) => !accepted.includes(r.id)),
+      receipts: now.receipts.filter((r) => !res.accepted.includes(r.id)),
       shifts: now.shifts.filter((s) => !sentShifts.has(JSON.stringify(s))),
+      cashOps: now.cashOps.filter((o) => !res.acceptedCashOps.includes(o.id)),
     });
   } catch {
     // нет сети — попробуем позже
   } finally {
     syncing = false;
   }
-  return storage.queue().receipts.length;
+  const left = storage.queue();
+  return left.receipts.length + left.cashOps.length;
 }
