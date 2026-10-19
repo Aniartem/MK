@@ -3,11 +3,15 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { query } from '../db.js';
 import { anyUser, backOffice } from '../auth.js';
+import { config } from '../config.js';
 
 const idParam = z.object({ id: z.coerce.number().int() });
 
 const addressBody = z.object({
   name: z.string().min(1),
+  city: z.string().nullable().default(null),
+  fullAddress: z.string().nullable().default(null),
+  organizationId: z.number().int().nullable().default(null),
   isWarehouse: z.boolean().default(false),
   active: z.boolean().default(true),
 });
@@ -36,6 +40,8 @@ const userBody = z.object({
   email: z.string().email().nullable().default(null),
   password: z.string().min(6).optional(),
   pin: z.string().regex(/^\d{4}$/, 'PIN — 4 цифры').optional(),
+  tabNumber: z.string().nullable().default(null),
+  addressIds: z.array(z.number().int()).default([]),
   active: z.boolean().default(true),
 });
 
@@ -61,7 +67,15 @@ const promotionBody = z.object({
   description: z.string().nullable().default(null),
   active: z.boolean().default(true),
 });
-const userColumns = `id, name, role, email, active, pin_hash is not null as "hasPin"`;
+const userColumns = `id, name, role, email, active, pin_hash is not null as "hasPin", tab_number as "tabNumber",
+  address_ids as "addressIds", last_seen_at as "lastSeenAt"`;
+
+const organizationBody = z.object({
+  name: z.string().min(1),
+  inn: z.string().regex(/^(\d{10}|\d{12})$/, 'ИНН — 10 или 12 цифр').nullable().default(null),
+  kpp: z.string().regex(/^\d{9}$/, 'КПП — 9 цифр').nullable().default(null),
+  address: z.string().nullable().default(null),
+});
 
 // PIN определяет кассира, поэтому он должен быть уникальным
 async function pinTaken(pin: string, exceptId?: number) {
@@ -73,19 +87,29 @@ async function pinTaken(pin: string, exceptId?: number) {
 export async function manageRoutes(app: FastifyInstance) {
   // Адреса
   app.get('/api/addresses', { preHandler: anyUser }, async () =>
-    query(`select id, name, is_warehouse as "isWarehouse", active from addresses order by is_warehouse desc, name`),
+    query(
+      `select a.id, a.name, a.is_warehouse as "isWarehouse", a.active, a.city, a.full_address as "fullAddress",
+         a.organization_id as "organizationId", o.name as organization
+       from addresses a left join organizations o on o.id = a.organization_id
+       order by a.is_warehouse desc, a.name`,
+    ),
   );
   app.post('/api/addresses', { preHandler: backOffice }, async (req) => {
     const b = addressBody.parse(req.body);
-    const [row] = await query('insert into addresses (name, is_warehouse, active) values ($1, $2, $3) returning id', [
-      b.name, b.isWarehouse, b.active,
-    ]);
+    const [row] = await query(
+      `insert into addresses (name, is_warehouse, active, city, full_address, organization_id)
+       values ($1, $2, $3, $4, $5, $6) returning id`,
+      [b.name, b.isWarehouse, b.active, b.city, b.fullAddress, b.organizationId],
+    );
     return row;
   });
   app.put('/api/addresses/:id', { preHandler: backOffice }, async (req) => {
     const { id } = idParam.parse(req.params);
     const b = addressBody.parse(req.body);
-    await query('update addresses set name = $2, is_warehouse = $3, active = $4 where id = $1', [id, b.name, b.isWarehouse, b.active]);
+    await query(
+      `update addresses set name = $2, is_warehouse = $3, active = $4, city = $5, full_address = $6, organization_id = $7 where id = $1`,
+      [id, b.name, b.isWarehouse, b.active, b.city, b.fullAddress, b.organizationId],
+    );
     return { ok: true };
   });
 
@@ -142,12 +166,13 @@ export async function manageRoutes(app: FastifyInstance) {
     if (b.role === 'owner' && req.user.role !== 'owner') return reply.code(403).send({ error: 'Недостаточно прав' });
     if (b.pin && (await pinTaken(b.pin))) return reply.code(400).send({ error: 'Такой PIN уже занят' });
     const [row] = await query(
-      `insert into users (name, role, email, password_hash, pin_hash, active) values ($1, $2, $3, $4, $5, $6) returning id`,
+      `insert into users (name, role, email, password_hash, pin_hash, active, tab_number, address_ids)
+       values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
       [
         b.name, b.role, b.email,
         b.password ? await bcrypt.hash(b.password, 10) : null,
         b.pin ? await bcrypt.hash(b.pin, 10) : null,
-        b.active,
+        b.active, b.tabNumber, b.addressIds,
       ],
     );
     return row;
@@ -163,12 +188,13 @@ export async function manageRoutes(app: FastifyInstance) {
     if (b.pin && (await pinTaken(b.pin, id))) return reply.code(400).send({ error: 'Такой PIN уже занят' });
     await query(
       `update users set name = $2, role = $3, email = $4, active = $5,
-         password_hash = coalesce($6, password_hash), pin_hash = coalesce($7, pin_hash)
+         password_hash = coalesce($6, password_hash), pin_hash = coalesce($7, pin_hash), tab_number = $8, address_ids = $9
        where id = $1`,
       [
         id, b.name, b.role, b.email, b.active,
         b.password ? await bcrypt.hash(b.password, 10) : null,
         b.pin ? await bcrypt.hash(b.pin, 10) : null,
+        b.tabNumber, b.addressIds,
       ],
     );
     return { ok: true };
@@ -241,4 +267,45 @@ export async function manageRoutes(app: FastifyInstance) {
     );
     return { ok: true };
   });
+
+  // Организации (юрлица и ИП)
+  app.get('/api/organizations', { preHandler: backOffice }, async () =>
+    query(`select id, name, inn, kpp, address from organizations order by name`),
+  );
+  app.post('/api/organizations', { preHandler: backOffice }, async (req) => {
+    const b = organizationBody.parse(req.body);
+    const [row] = await query(`insert into organizations (name, inn, kpp, address) values ($1, $2, $3, $4) returning id`, [
+      b.name, b.inn, b.kpp, b.address,
+    ]);
+    return row;
+  });
+  app.put('/api/organizations/:id', { preHandler: backOffice }, async (req) => {
+    const { id } = idParam.parse(req.params);
+    const b = organizationBody.parse(req.body);
+    await query(`update organizations set name = $2, inn = $3, kpp = $4, address = $5 where id = $1`, [id, b.name, b.inn, b.kpp, b.address]);
+    return { ok: true };
+  });
+
+  // Планшеты-кассы: когда были на связи и сколько у них неотправленных чеков
+  app.get('/api/devices', { preHandler: backOffice }, async () =>
+    query(
+      `select d.id, d.name, d.address_id as "addressId", a.name as address, u.name as "user", d.last_seen_at as "lastSeenAt",
+         d.pending, d.created_at as "createdAt"
+       from devices d left join addresses a on a.id = d.address_id left join users u on u.id = d.last_user_id
+       order by d.last_seen_at desc`,
+    ),
+  );
+  app.put('/api/devices/:id', { preHandler: backOffice }, async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const b = z.object({ name: z.string().nullable() }).parse(req.body);
+    await query('update devices set name = $2 where id = $1', [id, b.name]);
+    return { ok: true };
+  });
+  app.delete('/api/devices/:id', { preHandler: backOffice }, async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    await query('delete from devices where id = $1', [id]);
+    return { ok: true };
+  });
+
+  app.get('/api/settings', { preHandler: backOffice }, async () => ({ timezone: config.timezone }));
 }

@@ -216,3 +216,6 @@ h2 { font-size: 17px; font-weight: 600; margin: 0; }
   .filters-extra { margin-left: 0; }
   .form-row { flex-direction: column; }
 }
+.input.grow { flex: 1; }
+.table tr.inactive td { opacity: .5; }
+.band-row { width: 100%; }

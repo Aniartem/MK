@@ -90,6 +90,16 @@ export async function api<T = any>(path: string, init: { method?: string; body?:
   return data as T;
 }
 
+// Постоянный идентификатор планшета: по нему кабинет показывает, какая касса на связи
+export function deviceId() {
+  let id = localStorage.getItem('pos_device_id');
+  if (!id) {
+    id = uuid();
+    localStorage.setItem('pos_device_id', id);
+  }
+  return id;
+}
+
 export function enqueue(item: { receipt?: Receipt; shift?: Shift; cashOp?: CashOp }) {
   const q = storage.queue();
   if (item.receipt) q.receipts.push(item.receipt);
@@ -106,7 +116,7 @@ export async function sync(): Promise<number> {
   if (syncing || (!pending && !q.shifts.length) || !storage.session()) return pending;
   syncing = true;
   try {
-    const batch = { shifts: q.shifts, receipts: q.receipts.slice(0, 200), cashOps: q.cashOps };
+    const batch = { deviceId: deviceId(), pending, shifts: q.shifts, receipts: q.receipts.slice(0, 200), cashOps: q.cashOps };
     const res = await api<{ accepted: string[]; acceptedCashOps: string[] }>('/api/pos/sync', { method: 'POST', body: batch });
     const now = storage.queue();
     const sentShifts = new Set(batch.shifts.map((s) => JSON.stringify(s)));

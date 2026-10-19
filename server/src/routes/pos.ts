@@ -47,6 +47,9 @@ const cashOpBody = z.object({
 });
 
 const syncBody = z.object({
+  deviceId: z.string().uuid().optional(),
+  // сколько записей ещё ждёт отправки на планшете — видно в настройках устройств
+  pending: z.number().int().nonnegative().default(0),
   shifts: z.array(shiftBody).default([]),
   receipts: z.array(receiptBody).default([]),
   cashOps: z.array(cashOpBody).default([]),
@@ -77,6 +80,15 @@ export async function posRoutes(app: FastifyInstance) {
     const body = syncBody.parse(req.body);
     const staff = new Set((await query<{ id: number }>('select id from users where active')).map((u) => u.id));
     const cashierOf = (x: { cashierId?: number }) => (x.cashierId && staff.has(x.cashierId) ? x.cashierId : req.user.id);
+    await query('update users set last_seen_at = now() where id = $1', [req.user.id]);
+    if (body.deviceId) {
+      await query(
+        `insert into devices (id, address_id, last_user_id, pending) values ($1, $2, $3, $4)
+         on conflict (id) do update set address_id = excluded.address_id, last_user_id = excluded.last_user_id,
+           pending = excluded.pending, last_seen_at = now()`,
+        [body.deviceId, addressId, req.user.id, body.pending],
+      );
+    }
 
     return tx(async (db) => {
       for (const s of body.shifts) {

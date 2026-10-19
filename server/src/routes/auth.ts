@@ -15,18 +15,32 @@ export async function authRoutes(app: FastifyInstance) {
     if (!user?.password_hash || !(await bcrypt.compare(body.password, user.password_hash))) {
       return reply.code(401).send({ error: 'Неверный email или пароль' });
     }
+    await query('update users set last_seen_at = now() where id = $1', [user.id]);
     const payload = { id: user.id, name: user.name, role: user.role };
     return { token: app.jwt.sign(payload, { expiresIn: '30d' }), user: payload };
   });
 
   // Вход кассира на планшете: точка выбрана при настройке планшета, кассир вводит PIN
   app.post('/api/auth/pin', async (req, reply) => {
-    const body = z.object({ addressId: z.number().int(), pin: z.string().regex(/^\d{4}$/) }).parse(req.body);
+    const body = z
+      .object({ addressId: z.number().int(), pin: z.string().regex(/^\d{4}$/), deviceId: z.string().uuid().optional() })
+      .parse(req.body);
     const [address] = await query('select id from addresses where id = $1 and active and not is_warehouse', [body.addressId]);
     if (!address) return reply.code(400).send({ error: 'Точка не найдена' });
-    const candidates = await query(`select id, name, role, pin_hash from users where active and pin_hash is not null`);
+    const candidates = await query(`select id, name, role, pin_hash, address_ids from users where active and pin_hash is not null`);
     for (const u of candidates) {
       if (await bcrypt.compare(body.pin, u.pin_hash)) {
+        if (u.address_ids.length && !u.address_ids.includes(body.addressId)) {
+          return reply.code(403).send({ error: 'Нет доступа к этой точке' });
+        }
+        await query('update users set last_seen_at = now() where id = $1', [u.id]);
+        if (body.deviceId) {
+          await query(
+            `insert into devices (id, address_id, last_user_id) values ($1, $2, $3)
+             on conflict (id) do update set address_id = excluded.address_id, last_user_id = excluded.last_user_id, last_seen_at = now()`,
+            [body.deviceId, body.addressId, u.id],
+          );
+        }
         const payload = { id: u.id, name: u.name, role: u.role, addressId: body.addressId };
         return { token: app.jwt.sign(payload, { expiresIn: '16h' }), user: payload };
       }

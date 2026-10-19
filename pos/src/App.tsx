@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fiscal } from './fiscal';
 import {
-  api, applyPromotions, cartTotal, CartItem, CashOp, enqueue, lineTotal, Product, Promotion, Receipt, Session, Shift, storage, sync, uuid,
+  api, applyPromotions, deviceId, cartTotal, CartItem, CashOp, enqueue, lineTotal, Product, Promotion, Receipt, Session, Shift, storage, sync, uuid,
 } from './store';
 
 const fmt = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -116,7 +116,7 @@ function PinLock({ addressId, addressName, onLogin }: { addressId: number; addre
     if (pin.length < 4 || busy) return;
     setBusy(true);
     setError('');
-    api<Session>('/api/auth/pin', { method: 'POST', body: { addressId, pin } })
+    api<Session>('/api/auth/pin', { method: 'POST', body: { addressId, pin, deviceId: deviceId() } })
       .then(async (s) => {
         // Каталог обновляем при каждом входе; если сети нет — работаем на сохранённом
         try {
@@ -125,7 +125,7 @@ function PinLock({ addressId, addressName, onLogin }: { addressId: number; addre
         onLogin(s);
       })
       .catch((e) => {
-        setError(e.status === 401 ? 'Неверный PIN' : 'Нет связи с сервером');
+        setError(e.status === 401 ? 'Неверный PIN' : e.status === 403 ? e.message : 'Нет связи с сервером');
         setPin('');
       })
       .finally(() => setBusy(false));

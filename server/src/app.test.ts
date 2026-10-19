@@ -49,6 +49,22 @@ describe('вход', () => {
   });
 });
 
+describe('доступ к точкам', () => {
+  it('кассир с ограничением не входит на чужой точке, а планшет регистрируется', async () => {
+    const [{ id: other }] = await query(`insert into addresses (name) values ('Другая точка') returning id`);
+    await query(`insert into users (name, role, pin_hash, address_ids) values ('Ограниченный', 'cashier', $1, $2)`, [
+      await bcrypt.hash('5555', 4), [pointId],
+    ]);
+    const denied = await app.inject({ method: 'POST', url: '/api/auth/pin', payload: { addressId: other, pin: '5555' } });
+    expect(denied.statusCode).toBe(403);
+    const deviceId = randomUUID();
+    const ok = await app.inject({ method: 'POST', url: '/api/auth/pin', payload: { addressId: pointId, pin: '5555', deviceId } });
+    expect(ok.statusCode).toBe(200);
+    const [d] = await query('select address_id from devices where id = $1', [deviceId]);
+    expect(d.address_id).toBe(pointId);
+  });
+});
+
 describe('синхронизация чеков', () => {
   const shiftId = randomUUID();
   const sale = {

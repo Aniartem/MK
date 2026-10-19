@@ -5,8 +5,8 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Journal from './pages/Journal';
 import Products from './pages/Products';
-import Employees from './pages/Employees';
-import Addresses from './pages/Addresses';
+import Employees, { Users } from './pages/Employees';
+import Settings from './pages/Settings';
 import Plans from './pages/Plans';
 import Budget from './pages/Budget';
 import { Counterparties, Promotions } from './pages/Partners';
@@ -25,7 +25,7 @@ const nav: { section?: string; items: [string, string, string][] }[] = [
     section: 'Управление',
     items: [
       ['/products', 'Номенклатура', '≡'], ['/employees', 'Сотрудники', '☺'], ['/counterparties', 'Контрагенты', '▤'],
-      ['/promotions', 'Лояльность', '%'], ['/plans', 'Планирование', '◎'], ['/addresses', 'Точки продаж', '⌂'],
+      ['/promotions', 'Лояльность', '%'], ['/plans', 'Планирование', '◎'],
     ],
   },
 ];
@@ -64,6 +64,8 @@ export default function App() {
         ))}
         <nav>
           <div className="nav-section">Аккаунт</div>
+          <NavLink to="/settings" className="nav-link"><span className="nav-icon">⚙</span>Настройки</NavLink>
+          <NavLink to="/users" className="nav-link"><span className="nav-icon">☺</span>Пользователи</NavLink>
           <div className="nav-user">{user.name}</div>
           <a
             className="nav-link"
@@ -94,7 +96,9 @@ export default function App() {
           <Route path="/plans" element={<Plans />} />
           <Route path="/products" element={<Products />} />
           <Route path="/employees" element={<Employees />} />
-          <Route path="/addresses" element={<Addresses />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/users" element={<Users />} />
+          <Route path="/addresses" element={<Navigate to="/settings" />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </main>

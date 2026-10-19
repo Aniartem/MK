@@ -56,15 +56,27 @@ async function main() {
     await bcrypt.hash('admin123', 10), await bcrypt.hash('0000', 10),
   ]);
   const cashiers: number[] = [];
-  for (const [name, pin] of [['Анна', '1111'], ['Мария', '2222'], ['Ольга', '3333'], ['Ирина', '4444']]) {
-    const [u] = await query(`insert into users (name, role, pin_hash) values ($1, 'cashier', $2) returning id`, [name, await bcrypt.hash(pin, 10)]);
+  for (const [name, pin, tab] of [['Анна', '1111', '001'], ['Мария', '2222', '002'], ['Ольга', '3333', '003'], ['Ирина', '4444', '004']]) {
+    const [u] = await query(`insert into users (name, role, pin_hash, tab_number) values ($1, 'cashier', $2, $3) returning id`, [
+      name, await bcrypt.hash(pin, 10), tab,
+    ]);
     cashiers.push(u.id);
   }
 
-  const [warehouse] = await query(`insert into addresses (name, is_warehouse) values ('Основной склад', true) returning id`);
+  const [org] = await query(`insert into organizations (name, inn, address) values ('ИП Демо Д. Д.', '183000000000', 'г. Ижевск') returning id`);
+  const [warehouse] = await query(
+    `insert into addresses (name, is_warehouse, city, full_address, organization_id) values ('Основной склад', true, 'Ижевск', 'г. Ижевск, ул. Ленина, 144 к2', $1) returning id`,
+    [org.id],
+  );
   const points: { id: number; traffic: number }[] = [];
-  for (const [name, traffic] of [['Пекарня 7 Подлесная 34а', 140], ['Пекарня ТЦ Восток, Ленина 144', 175], ['Родная пекарня Дзержинского, 59', 60]] as const) {
-    const [a] = await query(`insert into addresses (name) values ($1) returning id`, [name]);
+  for (const [name, traffic, full] of [
+    ['Пекарня 7 Подлесная 34а', 140, 'г. Ижевск, ул. 7-я Подлесная, 34а'],
+    ['Пекарня ТЦ Восток, Ленина 144', 175, 'г. Ижевск, ул. Ленина, 144в'],
+    ['Родная пекарня Дзержинского, 59', 60, 'г. Ижевск, ул. Дзержинского, 59'],
+  ] as const) {
+    const [a] = await query(`insert into addresses (name, city, full_address, organization_id) values ($1, 'Ижевск', $2, $3) returning id`, [
+      name, full, org.id,
+    ]);
     points.push({ id: a.id, traffic });
   }
 
