@@ -1,7 +1,14 @@
 // Локальное хранилище кассы. Всё, что нужно для продажи, лежит на планшете,
 // поэтому касса продолжает работать без интернета, а чеки уходят на сервер при появлении сети.
 
-export type Product = { id: number; name: string; categoryId: number | null; price: number; unit: string; barcode: string | null };
+import type { FiscalConfig, FiscalResult, FiscalSettings, Vat } from './fiscal';
+import { defaultFiscalSettings } from './fiscal';
+import type { AcquiringSettings, CardResult } from './acquiring';
+import { defaultAcquiringSettings } from './acquiring';
+
+export type Product = {
+  id: number; name: string; categoryId: number | null; price: number; unit: string; barcode: string | null; vat?: Vat | null;
+};
 export type Category = { id: number; name: string; color: string };
 export type CartItem = { productId: number | null; name: string; price: number; qty: number; discount: number };
 export type Receipt = {
@@ -13,10 +20,12 @@ export type Receipt = {
   cardAmount: number;
   createdAt: string;
   items: CartItem[];
+  fiscal?: { status: 'pending' | 'done' | 'error' | 'skipped'; error: string | null } & Partial<FiscalResult>;
+  card?: CardResult;
 };
 export type Promotion = { id: number; name: string; percent: number; mode: 'auto' | 'manual'; categoryIds: number[]; timeFrom: string | null; timeTo: string | null };
 export type CashOp = { id: string; cashierId: number; shiftId: string | null; kind: 'deposit' | 'withdrawal'; amount: number; note: string | null; createdAt: string };
-export type Catalog = { categories: Category[]; products: Product[]; promotions: Promotion[] };
+export type Catalog = { categories: Category[]; products: Product[]; promotions: Promotion[]; fiscal: FiscalConfig | null };
 type Queue = { receipts: Receipt[]; shifts: Shift[]; cashOps: CashOp[] };
 export type Shift = { id: string; cashierId: number; openedAt: string; closedAt: string | null; openingCash: number; closingCash: number | null };
 export type Session = { token: string; user: { id: number; name: string; role: string } };
@@ -40,7 +49,7 @@ export const storage = {
   setDevice: (d: Device | null) => save('pos_device', d),
   session: () => load<Session | null>('pos_session', null),
   setSession: (s: Session | null) => save('pos_session', s),
-  catalog: () => ({ categories: [], products: [], promotions: [], ...load<Partial<Catalog>>('pos_catalog', {}) }) as Catalog,
+  catalog: () => ({ categories: [], products: [], promotions: [], fiscal: null, ...load<Partial<Catalog>>('pos_catalog', {}) }) as Catalog,
   setCatalog: (c: Catalog) => save('pos_catalog', c),
   shift: () => load<Shift | null>('pos_shift', null),
   setShift: (s: Shift | null) => save('pos_shift', s),
@@ -49,6 +58,13 @@ export const storage = {
   setShiftReceipts: (r: Receipt[]) => save('pos_shift_receipts', r),
   shiftCashOps: () => load<CashOp[]>('pos_shift_cash_ops', []),
   setShiftCashOps: (o: CashOp[]) => save('pos_shift_cash_ops', o),
+  fiscalSettings: () => ({ ...defaultFiscalSettings, ...load<Partial<FiscalSettings>>('pos_fiscal', {}) }),
+  setFiscalSettings: (f: FiscalSettings) => save('pos_fiscal', f),
+  acquiringSettings: () => ({ ...defaultAcquiringSettings, ...load<Partial<AcquiringSettings>>('pos_acquiring', {}) }),
+  setAcquiringSettings: (a: AcquiringSettings) => save('pos_acquiring', a),
+  // Чеки, деньги за которые получены, но чек на ККТ не напечатан — их нужно допечатать
+  unprinted: () => load<Receipt[]>('pos_unprinted', []),
+  setUnprinted: (r: Receipt[]) => save('pos_unprinted', r),
   queue: () => ({ receipts: [], shifts: [], cashOps: [], ...load<Partial<Queue>>('pos_queue', {}) }) as Queue,
   setQueue: (q: Queue) => save('pos_queue', q),
 };

@@ -7,7 +7,11 @@ type Address = {
   id?: number; name: string; isWarehouse: boolean; active: boolean; city: string | null; fullAddress: string | null;
   organizationId: number | null; organization?: string | null;
 };
-type Organization = { id?: number; name: string; inn: string | null; kpp: string | null; address: string | null };
+type Organization = { id?: number; name: string; inn: string | null; kpp: string | null; address: string | null; taxation: string; vat: string };
+export const taxationLabels: Record<string, string> = {
+  osn: 'ОСН', usnIncome: 'УСН «Доходы»', usnIncomeOutcome: 'УСН «Доходы минус расходы»', esn: 'ЕСХН', patent: 'Патент',
+};
+export const vatLabels: Record<string, string> = { none: 'Без НДС', vat0: '0%', vat5: '5%', vat7: '7%', vat10: '10%', vat22: '22%' };
 type Device = { id: string; name: string | null; address: string | null; user: string | null; lastSeenAt: string; pending: number };
 
 export default function Settings() {
@@ -113,7 +117,7 @@ function Organizations() {
     <>
       <div className="filters-bar">
         <div className="filters-extra">
-          <button className="btn primary" onClick={() => setEdit({ name: '', inn: null, kpp: null, address: null })}>Создать</button>
+          <button className="btn primary" onClick={() => setEdit({ name: '', inn: null, kpp: null, address: null, taxation: 'usnIncome', vat: 'none' })}>Создать</button>
         </div>
       </div>
       <DataTable<Organization>
@@ -124,6 +128,8 @@ function Organizations() {
           { key: 'name', label: 'Название' },
           { key: 'inn', label: 'ИНН', render: (v) => v ?? '—' },
           { key: 'kpp', label: 'КПП', render: (v) => v ?? '—' },
+          { key: 'taxation', label: 'Налогообложение', value: (o) => taxationLabels[o.taxation] },
+          { key: 'vat', label: 'НДС', value: (o) => vatLabels[o.vat] },
           { key: 'address', label: 'Юридический адрес', render: (v) => v ?? '—' },
         ]}
       />
@@ -134,6 +140,19 @@ function Organizations() {
             <Field label="ИНН"><input inputMode="numeric" value={edit.inn ?? ''} onChange={(e) => setEdit({ ...edit, inn: e.target.value.replace(/\D/g, '') || null })} /></Field>
             <Field label="КПП (для ООО)"><input inputMode="numeric" value={edit.kpp ?? ''} onChange={(e) => setEdit({ ...edit, kpp: e.target.value.replace(/\D/g, '') || null })} /></Field>
             <Field label="Юридический адрес"><input value={edit.address ?? ''} onChange={(e) => setEdit({ ...edit, address: e.target.value || null })} /></Field>
+            <div className="form-row">
+              <Field label="Система налогообложения (печатается в чеке)">
+                <select value={edit.taxation} onChange={(e) => setEdit({ ...edit, taxation: e.target.value })}>
+                  {Object.entries(taxationLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </Field>
+              <Field label="НДС по умолчанию">
+                <select value={edit.vat} onChange={(e) => setEdit({ ...edit, vat: e.target.value })}>
+                  {Object.entries(vatLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </Field>
+            </div>
+            <p className="hint">ИП на УСН и патенте обычно без НДС. Если доход за год превысил 60 млн ₽, на УСН появляется НДС 5% или 7% — уточните у бухгалтера.</p>
             {error && <div className="error">{error}</div>}
             <button className="btn primary" disabled={!edit.name} onClick={save}>Сохранить</button>
           </div>

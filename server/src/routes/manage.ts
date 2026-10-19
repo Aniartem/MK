@@ -29,6 +29,7 @@ const productBody = z.object({
   cost: z.number().nonnegative().default(0),
   unit: z.string().default('шт'),
   kind: z.enum(['goods', 'product', 'raw']).default('product'),
+  vat: z.enum(['none', 'vat0', 'vat5', 'vat7', 'vat10', 'vat22']).nullable().default(null),
   barcode: z.string().nullable().default(null),
   active: z.boolean().default(true),
   sort: z.number().int().default(0),
@@ -45,7 +46,7 @@ const userBody = z.object({
   active: z.boolean().default(true),
 });
 
-const productColumns = `id, name, category_id as "categoryId", price, cost, unit, kind, barcode, active, sort`;
+const productColumns = `id, name, category_id as "categoryId", price, cost, unit, kind, vat, barcode, active, sort`;
 
 const counterpartyBody = z.object({
   name: z.string().min(1),
@@ -75,6 +76,8 @@ const organizationBody = z.object({
   inn: z.string().regex(/^(\d{10}|\d{12})$/, 'ИНН — 10 или 12 цифр').nullable().default(null),
   kpp: z.string().regex(/^\d{9}$/, 'КПП — 9 цифр').nullable().default(null),
   address: z.string().nullable().default(null),
+  taxation: z.enum(['osn', 'usnIncome', 'usnIncomeOutcome', 'esn', 'patent']).default('usnIncome'),
+  vat: z.enum(['none', 'vat0', 'vat5', 'vat7', 'vat10', 'vat22']).default('none'),
 });
 
 // PIN определяет кассира, поэтому он должен быть уникальным
@@ -141,9 +144,9 @@ export async function manageRoutes(app: FastifyInstance) {
   app.post('/api/products', { preHandler: backOffice }, async (req) => {
     const b = productBody.parse(req.body);
     const [row] = await query(
-      `insert into products (name, category_id, price, cost, unit, barcode, active, sort, kind)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
-      [b.name, b.categoryId, b.price, b.cost, b.unit, b.barcode, b.active, b.sort, b.kind],
+      `insert into products (name, category_id, price, cost, unit, barcode, active, sort, kind, vat)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
+      [b.name, b.categoryId, b.price, b.cost, b.unit, b.barcode, b.active, b.sort, b.kind, b.vat],
     );
     return row;
   });
@@ -152,9 +155,9 @@ export async function manageRoutes(app: FastifyInstance) {
     const b = productBody.parse(req.body);
     await query(
       `update products set name = $2, category_id = $3, price = $4, cost = $5, unit = $6, barcode = $7, active = $8, sort = $9,
-         kind = $10
+         kind = $10, vat = $11
        where id = $1`,
-      [id, b.name, b.categoryId, b.price, b.cost, b.unit, b.barcode, b.active, b.sort, b.kind],
+      [id, b.name, b.categoryId, b.price, b.cost, b.unit, b.barcode, b.active, b.sort, b.kind, b.vat],
     );
     return { ok: true };
   });
@@ -270,19 +273,22 @@ export async function manageRoutes(app: FastifyInstance) {
 
   // Организации (юрлица и ИП)
   app.get('/api/organizations', { preHandler: backOffice }, async () =>
-    query(`select id, name, inn, kpp, address from organizations order by name`),
+    query(`select id, name, inn, kpp, address, taxation, vat from organizations order by name`),
   );
   app.post('/api/organizations', { preHandler: backOffice }, async (req) => {
     const b = organizationBody.parse(req.body);
-    const [row] = await query(`insert into organizations (name, inn, kpp, address) values ($1, $2, $3, $4) returning id`, [
-      b.name, b.inn, b.kpp, b.address,
-    ]);
+    const [row] = await query(
+      `insert into organizations (name, inn, kpp, address, taxation, vat) values ($1, $2, $3, $4, $5, $6) returning id`,
+      [b.name, b.inn, b.kpp, b.address, b.taxation, b.vat],
+    );
     return row;
   });
   app.put('/api/organizations/:id', { preHandler: backOffice }, async (req) => {
     const { id } = idParam.parse(req.params);
     const b = organizationBody.parse(req.body);
-    await query(`update organizations set name = $2, inn = $3, kpp = $4, address = $5 where id = $1`, [id, b.name, b.inn, b.kpp, b.address]);
+    await query(`update organizations set name = $2, inn = $3, kpp = $4, address = $5, taxation = $6, vat = $7 where id = $1`, [
+      id, b.name, b.inn, b.kpp, b.address, b.taxation, b.vat,
+    ]);
     return { ok: true };
   });
 

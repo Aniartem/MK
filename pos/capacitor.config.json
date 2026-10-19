@@ -2,5 +2,8 @@
   "appId": "ru.mk.pos",
   "appName": "MK Касса",
   "webDir": "dist",
-  "android": { "allowMixedContent": true }
+  "android": { "allowMixedContent": true },
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  }
 }

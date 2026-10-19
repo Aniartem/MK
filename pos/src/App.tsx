@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { fiscal } from './fiscal';
+import * as fiscal from './fiscal';
+import { payByTerminal, type CardResult } from './acquiring';
+import { Equipment } from './Equipment';
 import {
   api, applyPromotions, deviceId, cartTotal, CartItem, CashOp, enqueue, lineTotal, Product, Promotion, Receipt, Session, Shift, storage, sync, uuid,
 } from './store';
@@ -26,7 +28,8 @@ export default function App() {
         session={session}
         onOpen={async (cash) => {
           const s: Shift = { id: uuid(), cashierId: session.user.id, openedAt: new Date().toISOString(), closedAt: null, openingCash: cash, closingCash: null };
-          await fiscal.openShift(session.user.name);
+          const settings = storage.fiscalSettings();
+          if (fiscal.fiscalEnabled(settings)) await fiscal.openShift(settings, session.user.name);
           storage.setShift(s);
           storage.setShiftReceipts([]);
           storage.setShiftCashOps([]);
@@ -144,8 +147,22 @@ function PinLock({ addressId, addressName, onLogin }: { addressId: number; addre
   );
 }
 
-function OpenShift({ session, onOpen, onLock }: { session: Session; onOpen: (cash: number) => void; onLock: () => void }) {
+function OpenShift({ session, onOpen, onLock }: { session: Session; onOpen: (cash: number) => Promise<void>; onLock: () => void }) {
   const [cash, setCash] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [equipment, setEquipment] = useState(false);
+  async function open() {
+    setBusy(true);
+    setError('');
+    try {
+      await onOpen(Number(cash || 0));
+    } catch (e) {
+      setError(`ККТ: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <div className="center-screen">
       <div className="panel pin">
@@ -154,8 +171,11 @@ function OpenShift({ session, onOpen, onLock }: { session: Session; onOpen: (cas
         <p>Наличные в кассе на начало смены</p>
         <div className="amount">{rub(Number(cash || 0))}</div>
         <Keypad value={cash} onChange={setCash} />
-        <button className="big primary" onClick={() => onOpen(Number(cash || 0))}>Открыть смену</button>
+        {error && <div className="error">{error}</div>}
+        <button className="big primary" disabled={busy} onClick={open}>{busy ? 'Открываем смену на ККТ…' : 'Открыть смену'}</button>
+        {session.user.role !== 'cashier' && <button className="big" onClick={() => setEquipment(true)}>⚙ Оборудование</button>}
         <button className="big" onClick={onLock}>Выйти</button>
+        {equipment && <Equipment cashier={session.user.name} onClose={() => setEquipment(false)} />}
       </div>
     </div>
   );
@@ -170,7 +190,9 @@ function Register(props: {
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [mode, setMode] = useState<'sale' | 'return'>('sale');
-  const [modal, setModal] = useState<'cash' | 'writeoff' | 'close' | 'promo' | 'cashop' | null>(null);
+  const [modal, setModal] = useState<'cash' | 'card' | 'writeoff' | 'close' | 'promo' | 'cashop' | 'equipment' | 'unprinted' | null>(null);
+  const [unprinted, setUnprinted] = useState(storage.unprinted());
+  const [busy, setBusy] = useState('');
   const [manualPromo, setManualPromo] = useState<number | null>(null);
   // клок для автоматических акций по времени
   const [now, setNow] = useState(new Date());
@@ -241,7 +263,7 @@ function Register(props: {
     return () => clearTimeout(t);
   }, [toast]);
 
-  async function pay(payment: 'cash' | 'card', change = 0) {
+  async function pay(payment: 'cash' | 'card', change = 0, card?: CardResult) {
     const receipt: Receipt = {
       id: uuid(),
       cashierId: session.user.id,
@@ -251,12 +273,32 @@ function Register(props: {
       cardAmount: payment === 'card' ? total : 0,
       createdAt: new Date().toISOString(),
       items: priced,
+      ...(card ? { card } : {}),
     };
-    try {
-      await fiscal.printReceipt(receipt, session.user.name);
-    } catch (e) {
-      setToast(`Ошибка ККТ: ${(e as Error).message}`);
-      return;
+    const settings = storage.fiscalSettings();
+    if (!fiscal.fiscalEnabled(settings)) {
+      receipt.fiscal = { status: 'skipped', error: null };
+    } else {
+      setBusy('Печать чека…');
+      try {
+        const result = await fiscal.printReceipt(settings, catalog.fiscal, receipt, session.user.name, catalog.products);
+        receipt.fiscal = { status: 'done', error: null, ...result };
+      } catch (e) {
+        const error = (e as Error).message;
+        // За наличные деньги ещё не взяты — продажу не проводим. По карте оплата уже прошла — чек нужно допечатать.
+        if (payment === 'cash') {
+          setBusy('');
+          setToast(`Чек не напечатан: ${error}`);
+          return;
+        }
+        receipt.fiscal = { status: 'error', error };
+        const list = [...storage.unprinted(), receipt];
+        storage.setUnprinted(list);
+        setUnprinted(list);
+        setToast(`Оплата прошла, но чек не напечатан: ${error}. Допечатайте его.`);
+      } finally {
+        setBusy('');
+      }
     }
     enqueue({ receipt });
     storage.setShiftReceipts([...storage.shiftReceipts(), receipt]);
@@ -264,8 +306,43 @@ function Register(props: {
     setManualPromo(null);
     setModal(null);
     setMode('sale');
-    setToast(`${mode === 'return' ? 'Возврат' : 'Продажа'} ${rub(total)}${change > 0 ? ` · сдача ${rub(change)}` : ''}`);
+    if (receipt.fiscal?.status !== 'error') {
+      setToast(`${mode === 'return' ? 'Возврат' : 'Продажа'} ${rub(total)}${change > 0 ? ` · сдача ${rub(change)}` : ''}`);
+    }
     setPending(await sync());
+  }
+
+  // Оплата картой: интегрированный терминал сам сообщает результат, отдельный — подтверждает кассир
+  async function payCard() {
+    if (storage.acquiringSettings().mode === 'manual') return setModal('card');
+    setBusy('Следуйте указаниям на терминале…');
+    try {
+      const result = await payByTerminal(total, mode === 'return' ? { rrn: null } : undefined);
+      setBusy('');
+      await pay('card', 0, result);
+    } catch (e) {
+      setBusy('');
+      setToast(`Оплата не прошла: ${(e as Error).message}`);
+    }
+  }
+
+  async function reprint(r: Receipt) {
+    setBusy('Печать чека…');
+    try {
+      const result = await fiscal.printReceipt(storage.fiscalSettings(), catalog.fiscal, r, session.user.name, catalog.products);
+      const fixed: Receipt = { ...r, fiscal: { status: 'done', error: null, ...result } };
+      // повторная отправка обновит статус чека на сервере
+      enqueue({ receipt: fixed });
+      const list = storage.unprinted().filter((x) => x.id !== r.id);
+      storage.setUnprinted(list);
+      setUnprinted(list);
+      setToast('Чек напечатан');
+      setPending(await sync());
+    } catch (e) {
+      setToast(`Не удалось: ${(e as Error).message}`);
+    } finally {
+      setBusy('');
+    }
   }
 
   return (
@@ -278,10 +355,14 @@ function Register(props: {
           <span className={`status ${online && !pending ? 'ok' : 'warn'}`}>
             {pending ? `Не отправлено: ${pending}` : online ? 'Онлайн' : 'Нет сети'}
           </span>
+          {unprinted.length > 0 && (
+            <button className="alarm" onClick={() => setModal('unprinted')}>Не напечатано: {unprinted.length}</button>
+          )}
           <button className={mode === 'return' ? 'on' : ''} onClick={() => setMode(mode === 'sale' ? 'return' : 'sale')}>Возврат</button>
           <button onClick={() => setModal('cashop')}>Касса</button>
           <button onClick={() => setModal('writeoff')}>Списание</button>
           <button onClick={() => setModal('close')}>Закрыть смену</button>
+          {session.user.role !== 'cashier' && <button onClick={() => setModal('equipment')}>⚙</button>}
           <button onClick={props.onLock}>🔒</button>
         </div>
       </header>
@@ -334,7 +415,7 @@ function Register(props: {
         </div>
         <div className="pay">
           <button className="big" disabled={!cart.length} onClick={() => setModal('cash')}>Наличные</button>
-          <button className="big primary" disabled={!cart.length} onClick={() => pay('card')}>Карта</button>
+          <button className="big primary" disabled={!cart.length} onClick={payCard}>Карта</button>
         </div>
         {cart.length > 0 && <button className="clear" onClick={() => { setCart([]); setManualPromo(null); }}>Очистить</button>}
       </aside>
@@ -343,6 +424,28 @@ function Register(props: {
       {modal === 'writeoff' && (
         <WriteoffModal products={catalog.products} addressId={props.addressId} onDone={(msg) => { setModal(null); setToast(msg); }} onClose={() => setModal(null)} />
       )}
+      {modal === 'card' && (
+        <Modal title={mode === 'return' ? 'Возврат на карту' : 'Оплата картой'} onClose={() => setModal(null)}>
+          <p>{mode === 'return' ? 'Проведите возврат на терминале на сумму' : 'Введите на терминале сумму и дождитесь одобрения'}</p>
+          <div className="amount">{rub(total)}</div>
+          <button className="big primary" onClick={() => pay('card')}>Оплата прошла</button>
+          <button className="big" onClick={() => setModal(null)}>Отказ — отменить</button>
+        </Modal>
+      )}
+      {modal === 'equipment' && <Equipment cashier={session.user.name} onClose={() => setModal(null)} />}
+      {modal === 'unprinted' && (
+        <Modal title="Чеки не напечатаны" onClose={() => setModal(null)}>
+          <p className="muted">Оплата по этим чекам прошла, но ККТ их не напечатала. По закону чек нужно выдать — напечатайте их, когда ККТ будет на связи.</p>
+          {unprinted.map((r) => (
+            <div key={r.id} className="cash-row">
+              <span>{new Date(r.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} · {rub(cartTotal(r.items))}<small className="muted"> {r.fiscal?.error}</small></span>
+              <button className="small-btn" disabled={!!busy} onClick={() => reprint(r)}>Напечатать</button>
+            </div>
+          ))}
+          {!unprinted.length && <p>Все чеки напечатаны.</p>}
+        </Modal>
+      )}
+      {busy && <div className="modal-bg"><div className="panel busy">{busy}</div></div>}
       {modal === 'promo' && (
         <PromoModal promos={manualPromos} value={manualPromo} onPick={(id) => { setManualPromo(id); setModal(null); }} onClose={() => setModal(null)} />
       )}
@@ -465,9 +568,24 @@ function CloseShiftModal({ shift, cashier, onClose, onClosed }: { shift: Shift; 
   const opSum = (kind: CashOp['kind']) => ops.filter((o) => o.kind === kind).reduce((s, o) => s + o.amount, 0);
   const expectedCash = Math.max(cashInDrawer(shift), 0);
   const [cash, setCash] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const settings = storage.fiscalSettings();
+  const unprinted = storage.unprinted().length;
 
   async function close() {
-    await fiscal.closeShift(cashier);
+    setError('');
+    if (fiscal.fiscalEnabled(settings)) {
+      setBusy(true);
+      try {
+        await fiscal.closeShift(settings, cashier);
+      } catch (e) {
+        setError(`ККТ: ${(e as Error).message}`);
+        return;
+      } finally {
+        setBusy(false);
+      }
+    }
     const closed: Shift = { ...shift, closedAt: new Date().toISOString(), closingCash: cash === '' ? expectedCash : Number(cash) };
     enqueue({ shift: closed });
     storage.setShift(null);
@@ -486,9 +604,13 @@ function CloseShiftModal({ shift, cashier, onClose, onClosed }: { shift: Shift; 
       <div className="cash-row"><span>Возвраты</span><b>{rub(sum('return'))}</b></div>
       <div className="cash-row"><span>Внесения / изъятия</span><b>{rub(opSum('deposit'))} / {rub(opSum('withdrawal'))}</b></div>
       <div className="cash-row change"><span>Должно быть в кассе</span><b>{rub(expectedCash)}</b></div>
+      {unprinted > 0 && <div className="error">Есть ненапечатанные чеки ({unprinted}) — допечатайте их до закрытия смены.</div>}
       <p>Фактически в кассе: <b>{cash === '' ? '—' : rub(Number(cash))}</b></p>
       <Keypad value={cash} onChange={setCash} max={7} />
-      <button className="big primary" onClick={close}>Закрыть смену</button>
+      {error && <div className="error">{error}</div>}
+      <button className="big primary" disabled={busy || unprinted > 0} onClick={close}>
+        {busy ? 'Печать Z-отчёта…' : fiscal.fiscalEnabled(settings) ? 'Закрыть смену и снять Z-отчёт' : 'Закрыть смену'}
+      </button>
     </Modal>
   );
 }

@@ -20,7 +20,7 @@ const tabs: [string, string, string][] = [
   ['cash', 'Касса', 'shift_open,shift_close,deposit,withdrawal'],
 ];
 
-type Row = { id: string; type: string; number: string | null; at: string; address: string; user: string; amount: number; note: string | null };
+type Row = { id: string; type: string; number: string | null; at: string; address: string; user: string; amount: number; note: string | null; status: string | null };
 
 export default function Journal() {
   const [tab, setTab] = useTab('all');
@@ -73,12 +73,15 @@ export default function Journal() {
         totals={false}
         exportName={`журнал-${f.start}-${f.finish}`}
         onRow={toggle}
-        rowClass={(r) => (r.type === 'withdrawal' || r.type === 'return' ? 'highlight' : undefined)}
+        rowClass={(r) => (r.status ? 'danger-row' : r.type === 'withdrawal' || r.type === 'return' ? 'highlight' : undefined)}
         expanded={(r) => (open === r.id ? <Details type={r.type} data={details} /> : null)}
         columns={[
           { key: 'at', label: 'Дата', value: (r) => r.at, render: (v) => <DateCell at={v} /> },
           { key: 'number', label: '№', value: (r) => r.number ?? r.id.slice(0, 8) },
-          { key: 'type', label: 'Тип', render: (v, r) => <>{docLabels[v] ?? v}{r.note && <small className="sub">{r.note}</small>}</> },
+          {
+            key: 'type', label: 'Тип',
+            render: (v, r) => <>{docLabels[v] ?? v}{r.note && <small className="sub">{r.note}</small>}{r.status && <small className="sub bad">⚠ {r.status}</small>}</>,
+          },
           { key: 'address', label: 'Адрес' },
           { key: 'user', label: 'Пользователь' },
           { key: 'amount', label: 'Сумма', align: 'right', render: money },
@@ -113,10 +116,13 @@ function Details({ type, data }: { type: string; data: any }) {
       </div>
     );
   }
-  if (!data.length) return <span className="muted">Без позиций</span>;
+  const items = Array.isArray(data) ? data : data.items;
+  const f = Array.isArray(data) ? null : data.fiscal;
+  if (!items.length) return <span className="muted">Без позиций</span>;
   return (
     <>
-      {data.map((i: any, n: number) => (
+      {f && <FiscalInfo f={f} />}
+      {items.map((i: any, n: number) => (
         <div key={n}>
           {i.name} — {qty(i.qty)}
           {i.price !== undefined ? ` × ${money(i.price)}` : ''} = {money(i.amount)}
@@ -233,5 +239,20 @@ export function DocumentModal({ kind, onClose, onSaved }: { kind: DocKind; onClo
         </button>
       </div>
     </Modal>
+  );
+}
+
+const fiscalStatus: Record<string, string> = {
+  done: 'Чек напечатан на ККТ', error: 'Чек не напечатан', pending: 'Ожидает печати на ККТ', skipped: 'Тестовый режим (без ККТ)',
+};
+
+function FiscalInfo({ f }: { f: any }) {
+  return (
+    <div className={`fiscal ${f.fiscalStatus === 'error' ? 'bad' : ''}`}>
+      <b>{fiscalStatus[f.fiscalStatus]}</b>
+      {f.fiscalStatus === 'done' && <> · ФД № {f.fiscalNumber} · ФП {f.fiscalSign} · ФН {f.fnNumber}</>}
+      {f.fiscalError && <> · {f.fiscalError}</>}
+      {(f.cardRrn || f.cardMask) && <> · Карта {f.cardMask ?? ''} RRN {f.cardRrn ?? '—'}</>}
+    </div>
   );
 }

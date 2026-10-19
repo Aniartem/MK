@@ -23,6 +23,18 @@ const receiptBody = z.object({
   payment: z.enum(['cash', 'card', 'mixed']),
   cardAmount: z.number().nonnegative().default(0),
   createdAt: z.string().datetime(),
+  // результат печати на ККТ; может прийти позже самого чека — тогда чек обновляется
+  fiscal: z
+    .object({
+      status: z.enum(['pending', 'done', 'error', 'skipped']),
+      number: z.number().int().nullable().default(null),
+      sign: z.string().nullable().default(null),
+      fnNumber: z.string().nullable().default(null),
+      at: z.string().nullable().default(null),
+      error: z.string().nullable().default(null),
+    })
+    .optional(),
+  card: z.object({ rrn: z.string().nullable().default(null), mask: z.string().nullable().default(null) }).optional(),
   items: z
     .array(
       z.object({
@@ -59,9 +71,17 @@ export async function posRoutes(app: FastifyInstance) {
   app.get('/api/pos/catalog', { preHandler: anyUser }, async (req) => ({
     categories: await query('select id, name, color from categories order by sort, name'),
     products: await query(
-      `select id, name, category_id as "categoryId", price, unit, barcode
+      `select id, name, category_id as "categoryId", price, unit, barcode, kind, vat
        from products where active and kind <> 'raw' order by sort, name`,
     ),
+    // реквизиты для фискальных чеков этой точки
+    fiscal: (
+      await query(
+        `select o.name as organization, o.inn, o.taxation, o.vat, a.full_address as "placeAddress"
+         from addresses a left join organizations o on o.id = a.organization_id where a.id = $1`,
+        [req.user.addressId ?? 0],
+      )
+    )[0] ?? null,
     promotions: await query(
       `select id, name, percent, mode, category_ids as "categoryIds",
          to_char(time_from, 'HH24:MI') as "timeFrom", to_char(time_to, 'HH24:MI') as "timeTo"
@@ -108,12 +128,24 @@ export async function posRoutes(app: FastifyInstance) {
         const total = money(items.reduce((s, i) => s + i.amount, 0));
         const discount = money(items.reduce((s, i) => s + i.discount, 0));
         const card = r.payment === 'card' ? total : r.payment === 'cash' ? 0 : Math.min(money(r.cardAmount), total);
-        const inserted = await db.query(
-          `insert into receipts (id, address_id, cashier_id, shift_id, kind, payment, cash_amount, card_amount, discount, total, created_at)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-           on conflict (id) do nothing`,
-          [r.id, addressId, cashierOf(r), r.shiftId, r.kind, r.payment, money(total - card), card, discount, total, r.createdAt],
+        const f = r.fiscal;
+        const fiscalAt = f?.at && !Number.isNaN(Date.parse(f.at)) ? f.at : null;
+        const saved = await db.query(
+          `insert into receipts (id, address_id, cashier_id, shift_id, kind, payment, cash_amount, card_amount, discount, total, created_at,
+             fiscal_status, fiscal_number, fiscal_sign, fn_number, fiscal_at, fiscal_error, card_rrn, card_mask)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+           on conflict (id) do update set
+             fiscal_status = excluded.fiscal_status, fiscal_number = excluded.fiscal_number, fiscal_sign = excluded.fiscal_sign,
+             fn_number = excluded.fn_number, fiscal_at = excluded.fiscal_at, fiscal_error = excluded.fiscal_error
+           where receipts.fiscal_status <> 'done' and excluded.fiscal_status <> 'pending'
+           returning (xmax = 0) as inserted`,
+          [
+            r.id, addressId, cashierOf(r), r.shiftId, r.kind, r.payment, money(total - card), card, discount, total, r.createdAt,
+            f?.status ?? 'pending', f?.number ?? null, f?.sign ?? null, f?.fnNumber ?? null, fiscalAt, f?.error ?? null,
+            r.card?.rrn ?? null, r.card?.mask ?? null,
+          ],
         );
+        const inserted = { rowCount: saved.rows[0]?.inserted ? 1 : 0 };
         if (inserted.rowCount) {
           // себестоимость фиксируем на момент продажи
           await db.query(

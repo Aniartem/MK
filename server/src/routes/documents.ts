@@ -103,7 +103,8 @@ export async function documentRoutes(app: FastifyInstance) {
          select r.id::text as id, r.kind as type, r.number::text as number, r.created_at as at,
            a.name as address, u.name as "user", r.cashier_id as user_id, r.total as amount,
            case r.payment when 'card' then 'Безнал.' when 'cash' then 'Нал.' else 'Смешанная' end as note,
-           r.fiscal_status as status
+           case r.fiscal_status when 'error' then 'Чек не напечатан: ' || coalesce(r.fiscal_error, '')
+             when 'pending' then 'Ожидает печати на ККТ' end as status
          from receipts r join addresses a on a.id = r.address_id join users u on u.id = r.cashier_id
          where ${period('r.created_at')} and ${addr('r.address_id')}
          union all
@@ -150,7 +151,15 @@ export async function documentRoutes(app: FastifyInstance) {
       return query(
         `select name, price, qty, discount, amount from receipt_items where receipt_id = $1 order by id`,
         [id],
-      );
+      ).then(async (items) => {
+        const [r] = await query(
+          `select fiscal_status as "fiscalStatus", fiscal_number as "fiscalNumber", fiscal_sign as "fiscalSign",
+             fn_number as "fnNumber", fiscal_at as "fiscalAt", fiscal_error as "fiscalError", card_rrn as "cardRrn", card_mask as "cardMask"
+           from receipts where id = $1`,
+          [id],
+        );
+        return { items, fiscal: r };
+      });
     }
     if (type === 'shift_open' || type === 'shift_close') {
       const [s] = await query(

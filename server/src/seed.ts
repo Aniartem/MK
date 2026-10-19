@@ -222,6 +222,9 @@ async function main() {
   await insertRows('cash_ops', ['id', 'shift_id', 'address_id', 'user_id', 'kind', 'amount', 'note', 'created_at'],
     ['uuid', 'uuid', 'int', 'int', 'text', 'numeric', 'text', 'text'], cashOps, 7);
 
+  // Демо-чеки пробиты без ККТ
+  await query(`update receipts set fiscal_status = 'skipped'`);
+
   // План продаж на текущий месяц: средняя выручка точки +5%
   await query(
     `insert into sales_plans (address_id, day, amount)

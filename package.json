@@ -7,6 +7,6 @@
     "dev:admin": "npm run dev -w admin",
     "dev:pos": "npm run dev -w pos",
     "build": "npm run build -w server && npm run build -w admin && npm run build -w pos",
-    "test": "npm test -w server"
+    "test": "npm test -w server && npm test -w pos"
   }
 }

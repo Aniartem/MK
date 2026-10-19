@@ -219,3 +219,5 @@ h2 { font-size: 17px; font-weight: 600; margin: 0; }
 .input.grow { flex: 1; }
 .table tr.inactive td { opacity: .5; }
 .band-row { width: 100%; }
+.table tr.danger-row td { background: #fdeaea; }
+.fiscal { margin-bottom: 6px; }

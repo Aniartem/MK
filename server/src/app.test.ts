@@ -187,3 +187,32 @@ describe('склад и касса', () => {
   });
 });
 
+describe('фискализация', () => {
+  it('чек, допечатанный позже, обновляется без дублей позиций', async () => {
+    const id = randomUUID();
+    const base = {
+      id, kind: 'sale', payment: 'card', createdAt: new Date().toISOString(),
+      items: [{ productId, name: 'Круассан', price: 120, qty: 1 }], card: { rrn: '123456789012', mask: '**** 4242' },
+    };
+    const send = (fiscal: object) =>
+      app.inject({
+        method: 'POST', url: '/api/pos/sync', headers: { authorization: `Bearer ${cashierToken}` },
+        payload: { receipts: [{ ...base, fiscal }] },
+      });
+    await send({ status: 'error', error: 'Нет связи с ККТ' });
+    let [r] = await query('select fiscal_status, fiscal_error, card_rrn from receipts where id = $1', [id]);
+    expect(r).toEqual({ fiscal_status: 'error', fiscal_error: 'Нет связи с ККТ', card_rrn: '123456789012' });
+
+    await send({ status: 'done', number: 77, sign: '3291745218', fnNumber: '7380440700000001', at: '2026-10-19T13:00:00+04:00' });
+    [r] = await query('select fiscal_status, fiscal_number, fiscal_sign, fiscal_error from receipts where id = $1', [id]);
+    expect(r).toEqual({ fiscal_status: 'done', fiscal_number: 77, fiscal_sign: '3291745218', fiscal_error: null });
+
+    // напечатанный чек уже не перезаписывается
+    await send({ status: 'error', error: 'повтор' });
+    [r] = await query('select fiscal_status from receipts where id = $1', [id]);
+    expect(r.fiscal_status).toBe('done');
+    const items = await query('select count(*) from receipt_items where receipt_id = $1', [id]);
+    expect(items[0].count).toBe(1);
+  });
+});
+

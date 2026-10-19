@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { Field, Modal, Page, kindLabels, resetCaches } from '../components';
 import { money } from '../format';
+import { vatLabels } from './Settings';
 
-type Product = { id?: number; name: string; categoryId: number | null; price: number; cost: number; unit: string; kind: string; barcode: string | null; active: boolean; sort: number };
+type Product = { id?: number; name: string; categoryId: number | null; price: number; cost: number; unit: string; kind: string; vat: string | null; barcode: string | null; active: boolean; sort: number };
 type Category = { id?: number; name: string; color: string; sort: number };
 
-const emptyProduct: Product = { name: '', categoryId: null, price: 0, cost: 0, unit: 'шт', kind: 'product', barcode: null, active: true, sort: 0 };
+const emptyProduct: Product = { name: '', categoryId: null, price: 0, cost: 0, unit: 'шт', kind: 'product', vat: null, barcode: null, active: true, sort: 0 };
 const markup = (p: Product) => (p.cost ? Math.round(((p.price - p.cost) / p.cost) * 10000) / 100 : null);
 
 export default function Products() {
@@ -113,6 +114,12 @@ export default function Products() {
             <Field label="Единица">
               <select value={edit.unit} onChange={(e) => setEdit({ ...edit, unit: e.target.value })}>
                 <option>шт</option><option>кг</option><option>л</option><option>мл</option><option>г</option>
+              </select>
+            </Field>
+            <Field label="НДС">
+              <select value={edit.vat ?? ''} onChange={(e) => setEdit({ ...edit, vat: e.target.value || null })}>
+                <option value="">Как у организации</option>
+                {Object.entries(vatLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </Field>
             <Field label="Штрихкод"><input value={edit.barcode ?? ''} onChange={(e) => setEdit({ ...edit, barcode: e.target.value || null })} /></Field>

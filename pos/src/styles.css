@@ -97,3 +97,12 @@ h2 { font-size: 20px; margin: 0; }
 .segmented button { flex: 1; height: 48px; border: 0; background: #fff; font-size: 16px; }
 .segmented button.active { background: var(--blue); color: #fff; }
 .note { height: 48px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; font-size: 15px; }
+
+.alarm { background: #d64545 !important; border-color: #d64545 !important; animation: pulse 1.5s infinite; }
+@keyframes pulse { 50% { opacity: .7; } }
+.busy { font-size: 18px; padding: 28px 36px; }
+.small-btn { height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--blue); background: #fff; color: var(--blue); }
+.equipment h3 { margin: 10px 0 0; font-size: 16px; }
+.row-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ok-text { color: var(--good); }
+.cash-row small { display: block; }
